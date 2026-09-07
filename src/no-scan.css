@@ -1,0 +1,23 @@
+.admin-page .page-title > .button.dark {
+  display: none;
+}
+body:has(.admin-page) .nav nav a[href="#home"],
+body:has(.admin-page) .nav nav a[href="#bookings"],
+body:has(.admin-page) .mobile-nav a[href="#home"],
+body:has(.admin-page) .mobile-nav a[href="#bookings"] {
+  display: none;
+}
+body:has(.admin-page) .stats-grid > div:nth-child(1) > span {
+  font-size: 0;
+}
+body:has(.admin-page) .stats-grid > div:nth-child(1) > span:after {
+  content: "การจองทั้งหมด";
+  font-size: 12px;
+}
+body:has(.admin-page) .stats-grid > div:nth-child(4) > span {
+  font-size: 0;
+}
+body:has(.admin-page) .stats-grid > div:nth-child(4) > span:after {
+  content: "รายได้ยืนยันแล้วทั้งหมด";
+  font-size: 12px;
+}

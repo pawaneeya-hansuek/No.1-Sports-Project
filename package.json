@@ -1,0 +1,24 @@
+{
+  "name": "no1-sports",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test scripts/*.test.mjs",
+    "dev:api": "C:\\xampp\\php\\php.exe -S 127.0.0.1:8080 -t server/public",
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "package": "node scripts/package.mjs"
+  },
+  "dependencies": {
+    "jsqr": "1.4.0",
+    "lucide-vue-next": "0.577.0",
+    "qrcode": "1.5.4",
+    "vue": "3.5.30"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.4",
+    "vite": "^8.2.2"
+  }
+}
