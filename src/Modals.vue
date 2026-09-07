@@ -11,6 +11,7 @@ import {
   ScanLine,
   Camera,
   Search,
+  CheckCircle2,
 } from "lucide-vue-next";
 import {
   PREVIEW,
@@ -433,7 +434,7 @@ watch(modal, async (v) => {
           :disabled="busy || PREVIEW"
           @click="action('checkin')"
         >
-          <ScanLine :size="18" /> ยืนยันเช็คอิน</button
+          <CheckCircle2 :size="18" /> ยืนยันเช็คอิน</button
         ><button
           v-if="activeBooking.status === 'checked_in'"
           class="button dark full-width"

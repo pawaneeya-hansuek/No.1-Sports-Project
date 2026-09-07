@@ -4,7 +4,7 @@ import { createServer } from 'vite';
 
 test('login succeeds even when the following booking refresh is offline', async () => {
   globalThis.location = { hash: '#home' };
-  globalThis.window = { location: { href: 'http://localhost/#home' } };
+  globalThis.window = { location: { href: 'http://localhost/#home' }, scrollTo() {} };
   const server = await createServer({ server: { middlewareMode: true, ws: false }, define: { 'import.meta.env.VITE_PREVIEW_MODE': '"false"' } });
   try {
     const s = await server.ssrLoadModule('/src/state.js');

@@ -20,11 +20,14 @@ export const route = ref(location.hash.slice(1) || "home"),
     ...(PREVIEW ? previewSettings : { bank_name: '', bank_account: '', bank_holder: '', booking_enabled: 0, payment_qr: null }),
     facilities: PREVIEW ? previewSettings.facilities : "",
     promotion: PREVIEW ? previewSettings.promotion : "",
+    promotion_code: PREVIEW ? previewSettings.promotion_code : "",
+    promotion_percent: PREVIEW ? previewSettings.promotion_percent : 0,
   });
 export const today = bangkokDate(),
   selectedDate = ref(today),
   selectedField = ref(1),
   duration = ref(1),
+  promoCode = ref(""),
   selectedHour = ref(null),
   slots = ref([]),
   available = ref(false),
@@ -74,7 +77,7 @@ export const adminRows = ref([]),
   fieldDraft = ref({}),
   settingsDraft = ref({}),
   reviewNote = ref("");
-const editableSettings = ['address', 'contact', 'facilities', 'promotion', 'rules', 'booking_enabled'];
+const editableSettings = ['address', 'contact', 'facilities', 'promotion', 'promotion_code', 'promotion_percent', 'rules', 'booking_enabled'];
 const settingsBaseline = ref("");
 const settingsSnapshot = () => JSON.stringify(editableSettings.map(k => settingsDraft.value[k]));
 export const settingsDirty = computed(() => settingsBaseline.value !== "" && settingsSnapshot() !== settingsBaseline.value);
@@ -115,8 +118,16 @@ export const chosenField = computed(
       fields.value[0],
   ),
   hours = Array.from({ length: 14 }, (_, i) => i + 9),
-  total = computed(
+  baseTotal = computed(
     () => Number(chosenField.value?.price || 0) * duration.value,
+  ),
+  promoApplied = computed(() => {
+    const configured = String(settings.value.promotion_code || "").trim().toLowerCase();
+    return Boolean(configured) && promoCode.value.trim().toLowerCase() === configured && Number(settings.value.promotion_percent) > 0;
+  }),
+  promoSavings = computed(() => (promoApplied.value ? baseTotal.value * Math.min(100, Math.max(0, Number(settings.value.promotion_percent) || 0)) / 100 : 0)),
+  total = computed(
+    () => baseTotal.value - promoSavings.value,
   ),
   isAdmin = computed(() => user.value?.role === "admin"),
   canAdmin = computed(() => isAdmin.value || PREVIEW),
@@ -125,6 +136,13 @@ export function navigate(path) {
   location.hash = path;
   route.value = path;
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+export function routeForAccount() {
+  if (PREVIEW || !user.value) return false;
+  const destination = isAdmin.value ? "admin" : route.value === "admin" ? "home" : route.value;
+  if (destination === route.value) return false;
+  navigate(destination);
+  return true;
 }
 export function scrollBooking() {
   navigate("home");
@@ -190,6 +208,7 @@ export async function boot() {
     settings.value = d.settings;
     settings.value.booking_enabled = Number(d.settings.booking_enabled);
     initialized.value = true;
+    routeForAccount();
     if (!fields.value.some((f) => Number(f.id) === Number(selectedField.value)))
       selectedField.value = fields.value[0]?.id;
     offline.value = "";
@@ -329,6 +348,9 @@ export async function authenticate() {
     user.value = d.user;
     setCsrf(d.csrf);
     auth.value = { name: "", email: "", phone: "", identity: "", password: "" };
+    const destination = isAdmin.value ? "admin" : "home";
+    const changedRoute = route.value !== destination;
+    navigate(destination);
     close();
     toast("เข้าสู่ระบบแล้ว");
     try {
@@ -336,7 +358,7 @@ export async function authenticate() {
     } catch (e) {
       offline.value = e.message;
     }
-    if (route.value === "admin") await loadAdmin();
+    if (!changedRoute && isAdmin.value) await loadAdmin();
   });
 }
 export async function logout() {
@@ -386,6 +408,7 @@ export async function book() {
       date: selectedDate.value,
       start: selectedHour.value,
       end: selectedHour.value + Number(duration.value),
+      promo_code: promoCode.value.trim(),
     });
     slip.value = null;
     show("payment");
@@ -441,6 +464,24 @@ export async function action(type) {
     close();
     toast("บันทึกสถานะแล้ว");
     await Promise.allSettled([refreshAdmin(), refreshAvailability()]);
+  });
+}
+export async function deleteAuditLog(log) {
+  await run(async () => {
+    if (PREVIEW) throw new Error("ข้อมูลตัวอย่าง ไม่สามารถลบประวัติจริงได้");
+    if (!log?.id || !window.confirm("ลบประวัติรายการนี้หรือไม่? การดำเนินการนี้ย้อนกลับไม่ได้")) return;
+    await api("delete_audit", { id: Number(log.id) });
+    logs.value = logs.value.filter((item) => item.id !== log.id);
+    toast("ลบประวัติแล้ว");
+  });
+}
+export async function deleteBookingHistory(booking) {
+  await run(async () => {
+    if (PREVIEW) throw new Error("ข้อมูลตัวอย่าง ไม่สามารถลบรายการจริงได้");
+    if (!booking?.code || !window.confirm("ลบประวัติการจองนี้และข้อมูลที่เกี่ยวข้องหรือไม่? การดำเนินการนี้ย้อนกลับไม่ได้")) return;
+    await api("delete_booking", { code: booking.code });
+    await refreshAdmin();
+    toast("ลบประวัติการจองแล้ว");
   });
 }
 export async function lookup() {
@@ -651,6 +692,7 @@ watch(
 );
 watch(route, async (r) => {
   try {
+    if (routeForAccount()) return;
     if (r === "bookings" && user.value) await refreshMine();
     if (r === "admin") await loadAdmin();
   } catch (e) {

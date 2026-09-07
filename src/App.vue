@@ -42,6 +42,7 @@ import {
   scrollBooking,
   show,
   logout,
+  routeForAccount,
   openBooking,
   money,
   hour,
@@ -53,6 +54,7 @@ let timer;
 const lifecycle = new AbortController();
 function hashChange() {
   route.value = location.hash.slice(1) || "home";
+  routeForAccount();
 }
 onMounted(async () => {
   window.addEventListener("hashchange", hashChange);
@@ -237,7 +239,7 @@ onUnmounted(() => {
     </div>
     <div class="footer-bottom">
       <span>© {{ new Date().getFullYear() }} No.1 Sports</span
-      ><a href="#admin">สำหรับผู้ดูแลสนาม</a
+      ><a v-if="canAdmin" href="#admin">สำหรับผู้ดูแลสนาม</a
       ><a
         href="https://unsplash.com/photos/K5ChxJaheKI"
         target="_blank"

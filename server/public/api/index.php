@@ -15,7 +15,7 @@ try {
  $method=$_SERVER['REQUEST_METHOD'];$action=$_GET['action']??'bootstrap';
  if(!in_array($method,['GET','POST'],true))fail('Method not allowed',405);
  if($method==='POST' && !hash_equals($_SESSION['csrf'],$_SERVER['HTTP_X_CSRF_TOKEN']??''))fail('กรุณารีเฟรชหน้าแล้วลองใหม่',403);
- $postActions=['register','login','logout','book','slip','cancel','admin_action','field_save','settings_save','payment_qr','field_image'];
+ $postActions=['register','login','logout','book','slip','cancel','admin_action','delete_audit','delete_booking','field_save','settings_save','payment_qr','field_image'];
  if(in_array($action,$postActions,true) && $method!=='POST')fail('Method not allowed',405);
  if(!in_array($action,$postActions,true) && $method!=='GET')fail('Method not allowed',405);
  expireBookings();
@@ -47,21 +47,25 @@ try {
  result(['slots'=>query("SELECT field_id,start_hour,end_hour FROM bookings WHERE booking_date=? AND status IN ('pending_payment','review','confirmed','checked_in','completed')",[$date])->fetchAll(),'server_time'=>date(DATE_ATOM)]);
  }
  if($action==='book'){
-  $u=currentUser();if($u['role']==='admin')fail('บัญชีแอดมินใช้สำหรับจัดการสนามเท่านั้น',403);$d=input();$date=textValue($d['date']??'',10);$start=filter_var($d['start']??null,FILTER_VALIDATE_INT);$end=filter_var($d['end']??null,FILTER_VALIDATE_INT);$field=filter_var($d['field_id']??null,FILTER_VALIDATE_INT);
+  $u=currentUser();if($u['role']==='admin')fail('บัญชีแอดมินใช้สำหรับจัดการสนามเท่านั้น',403);$d=input();$date=textValue($d['date']??'',10);$start=filter_var($d['start']??null,FILTER_VALIDATE_INT);$end=filter_var($d['end']??null,FILTER_VALIDATE_INT);$field=filter_var($d['field_id']??null,FILTER_VALIDATE_INT);$promo=strtolower(textValue($d['promo_code']??'',40));
   $dt=DateTimeImmutable::createFromFormat('!Y-m-d',$date);
   if(!$dt||$dt->format('Y-m-d')!==$date||$date<date('Y-m-d')||$date>date('Y-m-d',strtotime('+90 days'))||$start===false||$end===false||$start<9||$end>23||$end<=$start||strtotime($date.sprintf(' %02d:00:00',$start))<=time())fail('เลือกวันและเวลาระหว่าง 09:00–23:00 ภายใน 90 วัน');
   db()->beginTransaction();
   // Serialize reservations and field price edits on the same field row.
   $f=query('SELECT * FROM fields WHERE id=? FOR UPDATE',[$field])->fetch();
   if(!$f||!$f['active']){db()->rollBack();fail('สนามนี้ยังไม่เปิดจอง',409);}
-  if(!query('SELECT booking_enabled FROM settings WHERE id=1')->fetchColumn()){db()->rollBack();fail('ยังไม่เปิดรับจอง',409);}
+  $promotion=query('SELECT booking_enabled,promotion_code,promotion_percent FROM settings WHERE id=1')->fetch();
+  if(!$promotion['booking_enabled']){db()->rollBack();fail('ยังไม่เปิดรับจอง',409);}
+  $configuredPromo=strtolower(trim((string)$promotion['promotion_code']));$discountPercent=min(100,max(0,(float)$promotion['promotion_percent']));
+  if($promo && (!$configuredPromo || $promo!==$configuredPromo || $discountPercent<=0)){db()->rollBack();fail('โค้ดโปรโมชั่นไม่ถูกต้องหรือหมดอายุ',422);}
   query('SELECT id FROM users WHERE id=? FOR UPDATE',[$u['id']]);
   if(query("SELECT COUNT(*) FROM bookings WHERE user_id=? AND status IN ('pending_payment','review')",[$u['id']])->fetchColumn()>=3){db()->rollBack();fail('คุณมีรายการรอดำเนินการครบ 3 รายการแล้ว');}
     $exists=query("SELECT id FROM bookings WHERE field_id=? AND booking_date=? AND start_hour<? AND end_hour>? AND status IN ('pending_payment','review','confirmed','checked_in','completed') LIMIT 1",[$field,$date,$end,$start])->fetch();
  if($exists){db()->rollBack();fail('เต็มแล้ว มีผู้จองช่วงเวลานี้ กรุณาเลือกเวลาใหม่',409);}
   $code='N1-'.strtoupper(bin2hex(random_bytes(6)));
-  query('INSERT INTO bookings(code,user_id,field_id,field_name,booking_date,start_hour,end_hour,amount,expires_at) VALUES (?,?,?,?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 15 MINUTE))',[$code,$u['id'],$field,$f['name'],$date,$start,$end,round((float)$f['price']*($end-$start),2)]);
-  $id=(int)db()->lastInsertId();audit((int)$u['id'],$id,'created');db()->commit();result(publicBooking(bookingForUser($code,$u)));
+  $amount=round((float)$f['price']*($end-$start),2);if($promo)$amount=round($amount*(1-$discountPercent/100),2);
+  query('INSERT INTO bookings(code,user_id,field_id,field_name,booking_date,start_hour,end_hour,amount,expires_at) VALUES (?,?,?,?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 15 MINUTE))',[$code,$u['id'],$field,$f['name'],$date,$start,$end,$amount]);
+  $id=(int)db()->lastInsertId();audit((int)$u['id'],$id,'created',$promo?'promo: '.(string)$promotion['promotion_code'].' (-'.$discountPercent.'%)':'');db()->commit();result(publicBooking(bookingForUser($code,$u)));
  }
  if($action==='my_bookings'){$u=currentUser();result(array_map('publicBooking',query('SELECT b.*,u.name,u.phone,u.email FROM bookings b JOIN users u ON u.id=b.user_id WHERE b.user_id=? ORDER BY b.created_at DESC LIMIT 200',[$u['id']])->fetchAll()));}
  if($action==='slip'){
@@ -134,8 +138,8 @@ try {
   audit((int)$u['id'],null,'field_saved',(string)$id);result(['ok'=>true,'id'=>$id]);
  }
  if($action==='settings_save'){
-  $u=admin();$d=input();$values=[];foreach(['address','contact','facilities','promotion','rules'] as $k)$values[]=textValue($d[$k]??'', $k==='contact'?120:3000);$values[]=!empty($d['booking_enabled'])?1:0;
-  query('UPDATE settings SET address=?,contact=?,facilities=?,promotion=?,rules=?,booking_enabled=? WHERE id=1',$values);audit((int)$u['id'],null,'settings_saved');result(['ok'=>true]);
+  $u=admin();$d=input();$values=[];foreach(['address','contact','facilities','promotion'] as $k)$values[]=textValue($d[$k]??'', $k==='contact'?120:3000);$promoCode=textValue($d['promotion_code']??'',40);if($promoCode && !preg_match('/^[A-Za-z0-9_-]{3,40}$/',$promoCode))fail('โค้ดโปรโมชั่นใช้ได้เฉพาะ A-Z, 0-9, ขีดกลาง และขีดล่าง');$rawPercent=$d['promotion_percent']??0;$promoPercent=($rawPercent===''||$rawPercent===null)?0:filter_var($rawPercent,FILTER_VALIDATE_FLOAT);if($promoPercent===false||$promoPercent<0||$promoPercent>100)fail('ส่วนลดต้องอยู่ระหว่าง 0 ถึง 100 เปอร์เซ็นต์');$values[]=$promoCode;$values[]=round($promoPercent,2);$values[]=textValue($d['rules']??'',3000);$values[]=!empty($d['booking_enabled'])?1:0;
+  query('UPDATE settings SET address=?,contact=?,facilities=?,promotion=?,promotion_code=?,promotion_percent=?,rules=?,booking_enabled=? WHERE id=1',$values);audit((int)$u['id'],null,'settings_saved');result(['ok'=>true]);
  }
  if($action==='payment_qr'){
   $u=admin();[$file]=imageUpload('image');query('UPDATE settings SET payment_qr=? WHERE id=1',[$file]);audit((int)$u['id'],null,'payment_qr_uploaded');result(['ok'=>true]);
@@ -148,6 +152,30 @@ try {
   $name=textValue($_GET['id']??'',80);if(!preg_match('/^[a-f0-9]{48}\.(jpg|png|webp)$/',$name))fail('ไม่พบรูป',404);
   if(!query('SELECT id FROM fields WHERE image_url=?',['api/index.php?action=field_photo&id='.$name])->fetch())fail('ไม่พบรูป',404);
   $path=$c['storage_dir'].'/'.$name;header('Content-Type: '.(new finfo(FILEINFO_MIME_TYPE))->file($path));readfile($path);exit;
+ }
+ if($action==='delete_audit'){
+  admin();$d=input();$id=filter_var($d['id']??null,FILTER_VALIDATE_INT);
+  if($id===false || $id<1)fail('ไม่พบประวัติที่ต้องการลบ');
+  $deleted=query('DELETE FROM audit_logs WHERE id=?',[$id])->rowCount();
+  if(!$deleted)fail('ไม่พบประวัติที่ต้องการลบ',404);
+  result(['ok'=>true,'id'=>$id]);
+ }
+ if($action==='delete_booking'){
+  admin();$d=input();$code=textValue($d['code']??'',32);
+  db()->beginTransaction();
+  $b=query('SELECT id,status,slip_file FROM bookings WHERE code=? FOR UPDATE',[$code])->fetch();
+  if(!$b){db()->rollBack();fail('ไม่พบรายการจอง',404);}
+  if(!in_array($b['status'],['completed','cancelled','expired','rejected'],true)){
+   db()->rollBack();fail('ลบได้เฉพาะรายการจองที่จบแล้วหรือยกเลิกแล้ว',409);
+  }
+  query('DELETE FROM audit_logs WHERE booking_id=?',[$b['id']]);
+  query('DELETE FROM bookings WHERE id=?',[$b['id']]);
+  db()->commit();
+  if($b['slip_file']){
+   $path=$c['storage_dir'].'/'.basename($b['slip_file']);
+   if(is_file($path))@unlink($path);
+  }
+  result(['ok'=>true,'code'=>$code]);
  }
  if($action==='audit'){admin();result(query('SELECT a.*,u.name FROM audit_logs a JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 200')->fetchAll());}
  fail('ไม่พบคำขอ',404);

@@ -53,6 +53,8 @@ CREATE TABLE settings (
  contact VARCHAR(120) NOT NULL DEFAULT '',
  facilities TEXT NOT NULL,
  promotion TEXT NOT NULL,
+ promotion_code VARCHAR(40) NOT NULL DEFAULT '',
+ promotion_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
  rules TEXT NOT NULL,
  booking_enabled TINYINT(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

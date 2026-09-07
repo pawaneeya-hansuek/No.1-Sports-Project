@@ -9,6 +9,7 @@ import {
   Plus,
   Upload,
   RefreshCw,
+  Trash2,
 } from "lucide-vue-next";
 import {
   PREVIEW,
@@ -48,6 +49,8 @@ import {
   hour,
   displayDate,
   labels,
+  deleteAuditLog,
+  deleteBookingHistory,
 } from "./state";
 </script>
 <template>
@@ -187,6 +190,15 @@ import {
                   <button class="button outline compact" @click="openReview(b)">
                     {{ b.status === 'review' ? 'ตรวจสลิป' : b.status === 'confirmed' ? 'เช็คอิน / ดูตั๋ว' : 'ดูรายการ' }} <ArrowUpRight :size="15" />
                   </button>
+                  <button
+                    v-if="['completed', 'cancelled', 'expired', 'rejected'].includes(b.status)"
+                    class="button danger compact"
+                    type="button"
+                    :disabled="busy"
+                    @click="deleteBookingHistory(b)"
+                  >
+                    ลบประวัติ
+                  </button>
                 </td>
               </tr>
               <tr v-if="!adminRows.length">
@@ -270,6 +282,24 @@ import {
                 maxlength="3000"
                 rows="3"
               ></textarea></label
+            ><div class="promotion-settings">
+              <label
+                >โค้ดโปรโมชั่น<input
+                  v-model.trim="settingsDraft.promotion_code"
+                  maxlength="40"
+                  placeholder="เช่น No1Sports"
+              /></label>
+              <label
+                >ส่วนลดเปอร์เซ็นต์<input
+                  v-model.number="settingsDraft.promotion_percent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  placeholder="0 = ปิดโปรโมชั่น"
+              /></label>
+              <p class="small muted">เว้นโค้ดหรือใส่ส่วนลด 0 เพื่อปิดการใช้โปรโมชั่น</p>
+            </div
             ><label
               >คำแนะนำและเงื่อนไขการใช้สนาม<textarea
                 v-model="settingsDraft.rules"
@@ -327,6 +357,7 @@ import {
                 <th>ผู้ดำเนินการ</th>
                 <th>การดำเนินการ</th>
                 <th>รายละเอียด</th>
+                <th>จัดการ</th>
               </tr>
             </thead>
             <tbody>
@@ -335,6 +366,18 @@ import {
                 <td>{{ log.name }}</td>
                 <td>{{ log.action }}</td>
                 <td>{{ log.details }}</td>
+                <td>
+                  <button
+                    class="icon-button"
+                    type="button"
+                    :disabled="busy || PREVIEW"
+                    aria-label="ลบประวัติรายการนี้"
+                    title="ลบประวัติรายการนี้"
+                    @click="deleteAuditLog(log)"
+                  >
+                    <Trash2 :size="17" />
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>

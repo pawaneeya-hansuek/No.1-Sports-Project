@@ -27,6 +27,9 @@ import {
   selectedField,
   duration,
   selectedHour,
+  promoCode,
+  promoApplied,
+  promoSavings,
   today,
   dates,
   slotPage,
@@ -324,6 +327,19 @@ const progressPercent = computed(
           <div class="total-row">
             <span>ยอดชำระทั้งหมด</span><strong>฿{{ money(total) }}</strong>
           </div>
+          <label class="promo-input">
+            โค้ดโปรโมชั่น
+            <input
+              v-model="promoCode"
+              type="text"
+              maxlength="40"
+              autocomplete="off"
+              placeholder="ถ้ามีโค้ด เช่น No.1Sports"
+            />
+          </label>
+          <p v-if="promoApplied" class="promo-applied" role="status">
+            ใช้โค้ด {{ settings.promotion_code }} แล้ว ลด {{ settings.promotion_percent }}% (ประหยัด ฿{{ money(promoSavings) }})
+          </p>
           <button
             class="button lime full-width"
             :disabled="
@@ -348,6 +364,18 @@ const progressPercent = computed(
         </aside>
       </div>
     </section>
+    <section class="promotion-section">
+      <div>
+        <span class="eyebrow">GOOD GAMES. GREAT TIMES.</span>
+        <h2>ชวนเพื่อนให้ครบ<br />แล้วพบกันที่สนาม</h2>
+        <p class="preline">
+          {{ settings.promotion || "ติดตามโปรโมชั่นของสนามได้ที่นี่" }}
+        </p>
+      </div>
+      <div class="promo-mark">
+        LET’S<br /><span>PLAY.</span><ArrowUpRight :size="64" />
+      </div>
+    </section>
     <section class="facilities-section" id="facilities">
       <div class="facilities-intro">
         <div class="eyebrow green">MORE THAN A PITCH</div>
@@ -367,18 +395,6 @@ const progressPercent = computed(
         </div>
       </div>
       <p v-else class="muted">ผู้ดูแลกำลังอัปเดตรายละเอียดสิ่งอำนวยความสะดวก</p>
-    </section>
-    <section class="promotion-section">
-      <div>
-        <span class="eyebrow">GOOD GAMES. GREAT TIMES.</span>
-        <h2>ชวนเพื่อนให้ครบ<br />แล้วพบกันที่สนาม</h2>
-        <p class="preline">
-          {{ settings.promotion || "ติดตามโปรโมชั่นของสนามได้ที่นี่" }}
-        </p>
-      </div>
-      <div class="promo-mark">
-        LET’S<br /><span>PLAY.</span><ArrowUpRight :size="64" />
-      </div>
     </section>
     <section class="how-section">
       <div class="section-head">
