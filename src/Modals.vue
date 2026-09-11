@@ -12,6 +12,7 @@ import {
   Camera,
   Search,
   CheckCircle2,
+  MapPin,
 } from "lucide-vue-next";
 import {
   PREVIEW,
@@ -26,6 +27,11 @@ import {
   selectedHour,
   duration,
   total,
+  finalTotal,
+  loyalty,
+  loyaltyPointsAvailable,
+  loyaltyDiscount,
+  useLoyaltyPoints,
   settings,
   slip,
   qr,
@@ -50,9 +56,26 @@ import {
   money,
   hour,
   displayDate,
+  mapUrl,
+  enableBookingNotifications,
   labels,
+  locale,
+  t,
 } from "./state";
 const dialog = ref(null);
+const statusText = (status) => {
+  const english = {
+    pending_payment: "Pending payment",
+    review: "Under review",
+    confirmed: "Confirmed",
+    checked_in: "Playing",
+    completed: "Completed",
+    cancelled: "Cancelled",
+    expired: "Payment expired",
+    rejected: "Slip rejected",
+  };
+  return locale.value === "th" ? labels[status] : english[status] || status;
+};
 watch(modal, async (v) => {
   await nextTick();
   if (v && !dialog.value?.open) dialog.value?.showModal();
@@ -63,11 +86,11 @@ watch(modal, async (v) => {
   <dialog
     ref="dialog"
     class="modal"
-    aria-label="รายละเอียดและดำเนินการ"
+    :aria-label="t('รายละเอียดและดำเนินการ', 'Details and actions')"
     @cancel.prevent="close"
   >
-    <div class="modal-inner">
-      <button class="modal-close icon-button" @click="close" aria-label="ปิด">
+    <div :key="modal" class="modal-inner">
+      <button class="modal-close icon-button" @click="close" :aria-label="t('ปิด', 'Close')">
         <X :size="21" />
       </button>
       <template v-if="modal === 'auth'"
@@ -75,15 +98,15 @@ watch(modal, async (v) => {
         <h2>
           {{
             authMode === "login"
-              ? "ยินดีต้อนรับกลับสู่สนาม"
-              : "พร้อมสำหรับเกมต่อไป?"
+              ? t("ยินดีต้อนรับกลับสู่สนาม", "Welcome back to the pitch")
+              : t("พร้อมสำหรับเกมต่อไป?", "Ready for your next game?")
           }}
         </h2>
         <p class="muted">
           {{
             authMode === "login"
-              ? "เข้าสู่ระบบเพื่อจองสนามและดูตั๋วของคุณ"
-              : "สมัครด้วยอีเมลหรือเบอร์โทร พร้อมตั้งรหัสผ่าน"
+              ? t("เข้าสู่ระบบเพื่อจองสนามและดูตั๋วของคุณ", "Log in to book a field and view your tickets")
+              : t("สมัครด้วยอีเมลหรือเบอร์โทร พร้อมตั้งรหัสผ่าน", "Sign up with your email or phone and set a password")
           }}
         </p>
         <div class="auth-tabs">
@@ -94,7 +117,7 @@ watch(modal, async (v) => {
               error = '';
             "
           >
-            เข้าสู่ระบบ</button
+            {{ t("เข้าสู่ระบบ", "Log in") }}</button
           ><button
             :class="{ selected: authMode === 'register' }"
             @click="
@@ -102,30 +125,30 @@ watch(modal, async (v) => {
               error = '';
             "
           >
-            สมัครสมาชิก
+            {{ t("สมัครสมาชิก", "Sign up") }}
           </button>
         </div>
         <p v-if="PREVIEW" class="sample-note">
-          ตัวอย่างนี้ไม่รับข้อมูลส่วนบุคคลหรือสร้างบัญชีจริง
+          {{ t("ตัวอย่างนี้ไม่รับข้อมูลส่วนบุคคลหรือสร้างบัญชีจริง", "This demo does not collect personal data or create real accounts") }}
         </p>
-        <form @submit.prevent="authenticate">
+        <form :key="authMode" class="auth-form" @submit.prevent="authenticate">
           <template v-if="authMode === 'register'"
             ><label
-              >ชื่อผู้จอง<input
+              >{{ t("ชื่อผู้จอง", "Booker name") }}<input
                 v-model="auth.name"
                 autocomplete="name"
                 required
                 maxlength="120"
                 :disabled="PREVIEW" /></label
             ><label
-              >อีเมล<input
+              >{{ t("อีเมล", "Email") }}<input
                 type="email"
                 v-model="auth.email"
                 autocomplete="email"
                 maxlength="190"
                 :disabled="PREVIEW" /></label
             ><label
-              >เบอร์โทรศัพท์<input
+              >{{ t("เบอร์โทรศัพท์", "Phone") }}<input
                 type="tel"
                 v-model="auth.phone"
                 autocomplete="tel"
@@ -134,17 +157,16 @@ watch(modal, async (v) => {
                 :disabled="PREVIEW"
             /></label>
             <p class="small muted">
-              กรอกอีเมลหรือเบอร์โทรอย่างน้อยหนึ่งช่อง
-              ข้อมูลนี้ยังไม่ได้ยืนยันด้วย OTP
+              {{ t("กรอกอีเมลหรือเบอร์โทรอย่างน้อยหนึ่งช่อง ข้อมูลนี้ยังไม่ได้ยืนยันด้วย OTP", "Enter at least an email or phone number. This is not verified with OTP.") }}
             </p></template
           ><label v-else
-            >อีเมลหรือเบอร์โทร<input
+            >{{ t("อีเมลหรือเบอร์โทร", "Email or phone") }}<input
               v-model="auth.identity"
               autocomplete="username"
               required
               :disabled="PREVIEW" /></label
           ><label
-            >รหัสผ่าน<input
+            >{{ t("รหัสผ่าน", "Password") }}<input
               type="password"
               v-model="auth.password"
               :autocomplete="
@@ -156,43 +178,46 @@ watch(modal, async (v) => {
               :disabled="PREVIEW"
           /></label>
           <p v-if="authMode === 'register'" class="small muted">
-            ใช้รหัสผ่านอย่างน้อย 12 ตัวอักษร
-            ข้อมูลติดต่อใช้จัดการการจองและให้ผู้ดูแลสนามติดต่อคุณ
+            {{ t("ใช้รหัสผ่านอย่างน้อย 12 ตัวอักษร ข้อมูลติดต่อใช้จัดการการจองและให้ผู้ดูแลสนามติดต่อคุณ", "Use at least 12 characters. Contact details help manage your booking and let staff reach you.") }}
           </p>
           <button class="button dark full-width" :disabled="busy || PREVIEW">
             {{
               busy
-                ? "กำลังดำเนินการ…"
+                ? t("กำลังดำเนินการ…", "Working...")
                 : authMode === "login"
-                  ? "เข้าสู่ระบบ"
-                  : "สร้างบัญชี"
+                  ? t("เข้าสู่ระบบ", "Log in")
+                  : t("สร้างบัญชี", "Create account")
             }}
             <ArrowRight :size="18" />
           </button></form
       ></template>
       <template v-if="modal === 'confirm'"
         ><div class="eyebrow green">ONE STEP CLOSER TO THE GAME</div>
-        <h2>ยืนยันการจองสนาม</h2>
+        <h2>{{ t("ยืนยันการจองสนาม", "Confirm booking") }}</h2>
         <h3>{{ chosenField?.name }}</h3>
         <p>
           {{ displayDate(selectedDate) }}<br />{{ hour(selectedHour) }}–{{
             hour(selectedHour + duration)
           }}
-          · {{ duration }} ชั่วโมง
+          · {{ duration }} {{ t("ชั่วโมง", "hour(s)") }}
         </p>
         <div class="total-row">
-          <span>ยอดโอน</span><strong>฿{{ money(total) }}</strong>
+          <span>{{ t("ยอดโอน", "Amount") }}</span><strong>฿{{ money(finalTotal) }}</strong>
         </div>
+        <label v-if="loyalty.balance > 0" class="loyalty-choice">
+          <input v-model="useLoyaltyPoints" type="checkbox" />
+          <span><b>{{ t("ใช้แต้มสะสมเป็นส่วนลด", "Use loyalty points") }}</b><small>{{ loyalty.balance }} {{ t("แต้มคงเหลือ · ใช้ได้สูงสุด", "points available · up to") }} {{ loyaltyPointsAvailable }} {{ t("แต้ม", "points") }}</small></span>
+          <strong>-฿{{ money(loyaltyDiscount) }}</strong>
+        </label>
         <div class="sample-note">
-          ระบบกันเวลาไว้ 15 นาทีเพื่อโอนเงินและแนบสลิป หากไม่แนบสลิปทันเวลา
-          ระบบจะคืนช่วงเวลาให้ผู้จองอื่น
+          {{ t("ระบบกันเวลาไว้ 15 นาทีเพื่อโอนเงินและแนบสลิป หากไม่แนบสลิปทันเวลา ระบบจะคืนช่วงเวลาให้ผู้จองอื่น", "Your slot is held for 15 minutes for payment and slip upload. If no slip is uploaded, it will be released to others.") }}
         </div>
         <button class="button lime full-width" :disabled="busy" @click="book">
-          ยืนยันและไปชำระเงิน <ArrowRight :size="18" /></button
+          {{ t("ยืนยันและไปชำระเงิน", "Confirm and pay") }} <ArrowRight :size="18" /></button
       ></template>
       <template v-if="modal === 'payment' && activeBooking?.status === 'pending_payment'"
         ><div class="eyebrow green">PAYMENT</div>
-        <h2>ชำระเงินเพื่อยืนยันการจอง</h2>
+        <h2>{{ t("ชำระเงินเพื่อยืนยันการจอง", "Pay to confirm your booking") }}</h2>
         <p>
           {{ activeBooking.field_name }} ·
           {{ displayDate(activeBooking.booking_date, true) }} ·
@@ -201,7 +226,7 @@ watch(modal, async (v) => {
           }}
         </p>
         <p class="status pending_payment">
-          แนบสลิปก่อน {{ activeBooking.expires_at?.slice(11, 16) }} น.
+          {{ t("แนบสลิปก่อน", "Upload slip by") }} {{ activeBooking.expires_at?.slice(11, 16) }}
         </p>
         <div class="bank-box">
           <span class="bank-logo">K</span>
@@ -213,7 +238,7 @@ watch(modal, async (v) => {
           <button
             class="icon-button"
             @click="copyAccount"
-            aria-label="คัดลอกบัญชี"
+            :aria-label="t('คัดลอกบัญชี', 'Copy account number')"
           >
             <Copy :size="19" />
           </button>
@@ -222,60 +247,63 @@ watch(modal, async (v) => {
           v-if="settings.payment_qr"
           class="payment-qr"
           :src="settings.payment_qr"
-          alt="QR สำหรับโอนเงินเข้าบัญชีสนาม"
+          :alt="t('QR สำหรับโอนเงินเข้าบัญชีสนาม', 'QR for field payment')"
         />
         <p v-else class="sample-note">
-          ยังไม่มี QR รับเงิน กรุณาโอนผ่านเลขบัญชีด้านบน
+          {{ t("ยังไม่มี QR รับเงิน กรุณาโอนผ่านเลขบัญชีด้านบน", "No payment QR is available. Please use the account number above.") }}
         </p>
         <div class="total-row">
-          <span>ยอดที่ต้องโอน</span
+          <span>{{ t("ยอดที่ต้องโอน", "Amount to transfer") }}</span
           ><strong>฿{{ money(activeBooking.amount) }}</strong>
         </div>
+        <div v-if="activeBooking.loyalty_points_used || activeBooking.loyalty_points_earned" class="loyalty-payment-box">
+          <div><span>{{ t("แต้มที่ใช้", "Points used") }}</span><b>{{ activeBooking.loyalty_points_used || 0 }}</b></div>
+          <div><span>{{ t("แต้มที่จะได้รับหลังใช้สนาม", "Points earned after playing") }}</span><b>+{{ activeBooking.loyalty_points_earned || Math.floor(Number(activeBooking.amount || 0) / Number(loyalty.unit_amount || 100)) * Number(loyalty.points_per_unit || 5) }}</b></div>
+          <small>{{ t("แต้มจะเข้าบัญชีเมื่อชำระเงินครบและใช้สนามเสร็จ", "Points are credited after payment is confirmed and the session is completed") }}</small>
+        </div>
         <p class="small muted">
-          ตรวจชื่อผู้รับและยอดเงินในแอปธนาคารก่อนโอน
-          แอดมินจะตรวจยอดเข้าบัญชีก่อนออกตั๋ว
+          {{ t("ตรวจชื่อผู้รับและยอดเงินในแอปธนาคารก่อนโอน แอดมินจะตรวจยอดเข้าบัญชีก่อนออกตั๋ว", "Check the recipient and amount in your banking app. Staff will verify the payment before issuing a ticket.") }}
         </p>
         <form @submit.prevent="sendSlip">
           <label class="upload-box"
-            ><Upload :size="25" />{{ slip ? slip.name : "แนบสลิปโอนเงิน"
+            ><Upload :size="25" />{{ slip ? slip.name : t("แนบสลิปโอนเงิน", "Upload payment slip")
             }}<input
               type="file"
               accept="image/jpeg,image/png,image/webp"
               required
               @change="slip = $event.target.files[0]"
           /></label>
-          <p class="small muted">JPG, PNG หรือ WebP ไม่เกิน 5 MB</p>
+          <p class="small muted">{{ t("JPG, PNG หรือ WebP ไม่เกิน 5 MB", "JPG, PNG, or WebP up to 5 MB") }}</p>
           <button
             class="button dark full-width"
             :disabled="
               busy || !slip || activeBooking.status !== 'pending_payment'
             "
           >
-            ส่งสลิปให้ผู้ดูแลตรวจ <ArrowRight :size="18" />
+            {{ t("ส่งสลิปให้ผู้ดูแลตรวจ", "Submit slip for review") }} <ArrowRight :size="18" />
           </button>
         </form>
         <p v-if="activeBooking.status !== 'pending_payment'" class="alert">
-          {{ labels[activeBooking.status] }} หากโอนแล้วให้ติดต่อสนาม
+          {{ statusText(activeBooking.status) }} {{ t("หากโอนแล้วให้ติดต่อสนาม", "If you have paid, contact the field") }}
         </p>
         <button class="text-button danger" @click="show('cancel')">
-          ยังไม่ได้โอนเงิน ต้องการยกเลิก
+          {{ t("ยังไม่ได้โอนเงิน ต้องการยกเลิก", "I have not paid. Cancel booking") }}
         </button></template
       >
       <template v-if="modal === 'cancel'"
-        ><h2>ยกเลิกการจองนี้?</h2>
+        ><h2>{{ t("ยกเลิกการจองนี้?", "Cancel this booking?") }}</h2>
         <p>
-          ช่วงเวลาจะถูกคืนให้ผู้อื่นจอง
-          หากโอนเงินแล้วให้กลับไปแนบสลิปหรือติดต่อสนาม
+          {{ t("ช่วงเวลาจะถูกคืนให้ผู้อื่นจอง หากโอนเงินแล้วให้กลับไปแนบสลิปหรือติดต่อสนาม", "The slot will be released to others. If you have paid, upload the slip or contact the field.") }}
         </p>
         <div class="action-row">
           <button class="button outline" @click="show('payment')">
-            กลับไปชำระ</button
+            {{ t("กลับไปชำระ", "Back to payment") }}</button
           ><button
             class="button danger-fill"
             :disabled="busy"
             @click="cancelBooking"
           >
-            ยืนยันยกเลิก
+            {{ t("ยืนยันยกเลิก", "Confirm cancellation") }}
           </button>
         </div></template
       >
@@ -284,12 +312,12 @@ watch(modal, async (v) => {
           <div class="eyebrow">NO.1 SPORTS / MATCH PASS</div>
           <h2>{{ activeBooking.field_name }}</h2>
           <span :class="['status', activeBooking.status]">{{
-            labels[activeBooking.status]
+          statusText(activeBooking.status)
           }}</span>
           <div class="ticket-perforation"></div>
           <div class="digital-ticket-body">
             <p v-if="PREVIEW" class="sample-note">
-              ตั๋วตัวอย่าง • ใช้เข้าสนามไม่ได้
+              {{ t("ตั๋วตัวอย่าง • ใช้เข้าสนามไม่ได้", "Demo ticket • not valid for entry") }}
             </p>
             <img
               v-if="qr"
@@ -302,25 +330,25 @@ watch(modal, async (v) => {
               <p>
                 {{
                   activeBooking.status === "review"
-                    ? "ตั๋ว QR จะปรากฏหลังแอดมินตรวจสลิป"
+                    ? t("ตั๋ว QR จะปรากฏหลังแอดมินตรวจสลิป", "Your QR ticket will appear after staff reviews the slip")
                     : PREVIEW
-                      ? "QR จริงจะออกหลังยืนยันการชำระ"
-                      : "ยังไม่มีตั๋วเข้าสนาม"
+                      ? t("QR จริงจะออกหลังยืนยันการชำระ", "A real QR will be issued after payment confirmation")
+                      : t("ยังไม่มีตั๋วเข้าสนาม", "No entry ticket yet")
                 }}
               </p>
             </div>
             <strong class="ticket-code">{{ activeBooking.code }}</strong>
             <dl>
               <div>
-                <dt>ชื่อผู้จอง</dt>
+                <dt>{{ t("ชื่อผู้จอง", "Booker") }}</dt>
                 <dd>{{ activeBooking.name }}</dd>
               </div>
               <div>
-                <dt>วันที่</dt>
+                <dt>{{ t("วันที่", "Date") }}</dt>
                 <dd>{{ displayDate(activeBooking.booking_date, true) }}</dd>
               </div>
               <div>
-                <dt>เวลา</dt>
+                <dt>{{ t("เวลา", "Time") }}</dt>
                 <dd>
                   {{ hour(activeBooking.start_hour) }}–{{
                     hour(activeBooking.end_hour)
@@ -328,23 +356,28 @@ watch(modal, async (v) => {
                 </dd>
               </div>
               <div>
-                <dt>ยอดชำระ</dt>
+                <dt>{{ t("ยอดชำระ", "Amount") }}</dt>
                 <dd>฿{{ money(activeBooking.amount) }}</dd>
               </div>
             </dl>
             <p v-if="activeBooking.review_note" class="sample-note">
-              หมายเหตุ: {{ activeBooking.review_note }}
+              {{ t("หมายเหตุ", "Note") }}: {{ activeBooking.review_note }}
             </p>
             <p class="small muted">
-              แสดงตั๋วให้ผู้ดูแลสแกนก่อนเข้าสนาม<br />ตั๋วใช้เช็คอินได้ครั้งเดียว
-              กรุณาไม่แชร์ QR
+              {{ t("แสดงตั๋วให้ผู้ดูแลสแกนก่อนเข้าสนาม", "Show this ticket to staff before entry") }}<br />{{ t("ตั๋วใช้เช็คอินได้ครั้งเดียว กรุณาไม่แชร์ QR", "This ticket can be checked in once. Do not share the QR.") }}
             </p>
+            <a v-if="mapUrl()" :href="mapUrl()" target="_blank" rel="noopener" class="button outline full-width">
+              <MapPin :size="17" /> {{ t("เปิดแผนที่ไปสนาม", "Open directions to the field") }}
+            </a>
+            <button v-if="typeof Notification === 'undefined' || Notification.permission !== 'granted'" type="button" class="button outline full-width" @click="enableBookingNotifications">
+              {{ t("เปิดแจ้งเตือนก่อนถึงเวลาเล่น", "Enable pre-game reminder") }}
+            </button>
             <a
               v-if="qr"
               :href="qr"
               :download="activeBooking.code + '.png'"
               class="button outline"
-              ><Download :size="17" /> บันทึก QR</a
+              ><Download :size="17" /> {{ t("บันทึก QR", "Save QR") }}</a
             >
           </div>
         </div></template
@@ -383,6 +416,14 @@ watch(modal, async (v) => {
           <div>
             <dt>ยอดชำระ</dt>
             <dd>฿{{ money(activeBooking.amount) }}</dd>
+          </div>
+          <div v-if="activeBooking.loyalty_points_used">
+            <dt>แต้มที่ใช้ / คืนได้</dt>
+            <dd>{{ activeBooking.loyalty_points_used }} แต้ม</dd>
+          </div>
+          <div v-if="activeBooking.loyalty_points_earned">
+            <dt>แต้มที่ได้รับ</dt>
+            <dd>{{ activeBooking.loyalty_points_earned }} แต้ม</dd>
           </div>
         </dl>
         <template
@@ -443,18 +484,24 @@ watch(modal, async (v) => {
         >
           ยืนยันหมดเวลา
         </button>
+        <button
+          v-if="['confirmed', 'checked_in', 'completed'].includes(activeBooking.status)"
+          class="button outline danger full-width"
+          :disabled="busy || PREVIEW"
+          @click="action('refund')"
+        >ยืนยันคืนเงินและคืนแต้ม</button>
         <p v-if="activeBooking.review_note" class="sample-note">
           {{ activeBooking.review_note }}
         </p></template
       >
       <template v-if="modal === 'scanner'"
         ><div class="eyebrow green">READY FOR KICK-OFF</div>
-        <h2>สแกนตั๋วเช็คอิน</h2>
+        <h2>{{ t("สแกนตั๋วเช็คอิน", "Scan check-in ticket") }}</h2>
         <video ref="video" class="scanner-video" playsinline muted></video
         ><button class="button outline full-width" @click="startScanner">
-          <Camera :size="18" /> เปิดกล้องสแกน QR</button
+          <Camera :size="18" /> {{ t("เปิดกล้องสแกน QR", "Open QR scanner") }}</button
         ><label class="upload-box"
-          ><Camera :size="20" /> ถ่ายรูป QR จากมือถือ<input
+          ><Camera :size="20" /> {{ t("ถ่ายรูป QR จากมือถือ", "Take a QR photo") }}<input
             type="file"
             accept="image/*"
             capture="environment"
@@ -463,17 +510,17 @@ watch(modal, async (v) => {
         <p v-if="scanError" class="alert">{{ scanError }}</p>
         <form @submit.prevent="lookup">
           <label
-            >หรือกรอกรหัสตั๋ว<input
+            >{{ t("หรือกรอกรหัสตั๋ว", "Or enter ticket code") }}<input
               v-model="scanInput"
               placeholder="N1-…"
               maxlength="100"
               required /></label
           ><button class="button dark full-width" :disabled="busy">
-            ค้นหาตั๋ว <Search :size="17" />
+            {{ t("ค้นหาตั๋ว", "Find ticket") }} <Search :size="17" />
           </button>
         </form>
         <p class="small muted">
-          ระบบแสดงรายละเอียดให้ตรวจสอบก่อนกดยืนยันเช็คอิน
+          {{ t("ระบบแสดงรายละเอียดให้ตรวจสอบก่อนกดยืนยันเช็คอิน", "Review the details before confirming check-in") }}
         </p></template
       >
       <template v-if="modal === 'field'"

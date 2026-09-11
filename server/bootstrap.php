@@ -26,14 +26,69 @@ function input(): array { $raw=file_get_contents('php://input');$d=json_decode($
 function currentUser(bool $required=true): ?array {
  $u=isset($_SESSION['uid']) ? query('SELECT id,name,email,phone,role FROM users WHERE id=?',[$_SESSION['uid']])->fetch() : false;
  if(!$u && $required)fail('กรุณาเข้าสู่ระบบ',401);
+ if($u)$u['loyalty']=loyaltySummary((int)$u['id']);
  return $u ?: null;
 }
 function admin(): array { $u=currentUser();if($u['role']!=='admin')fail('เฉพาะผู้ดูแลสนาม',403);return $u; }
 function textValue(mixed $v,int $max=500): string { if(!is_string($v) || mb_strlen(trim($v))>$max)fail('กรุณาตรวจสอบข้อมูล');return trim($v); }
 function audit(int $actor,?int $booking,string $action,string $details=''): void { query('INSERT INTO audit_logs(actor_id,booking_id,action,details) VALUES (?,?,?,?)',[$actor,$booking,$action,$details]); }
 function expireBookings(): void {
- query("UPDATE bookings SET status='expired' WHERE status='pending_payment' AND expires_at <= NOW()");
- query("UPDATE bookings SET status='completed',completed_at=NOW() WHERE status IN ('confirmed','checked_in') AND TIMESTAMP(booking_date,MAKETIME(end_hour,0,0))<=NOW()");
+ $expired=query("SELECT id FROM bookings WHERE status='pending_payment' AND expires_at <= NOW()")->fetchAll();
+ foreach($expired as $row){
+  db()->beginTransaction();
+  $b=query('SELECT * FROM bookings WHERE id=? FOR UPDATE',[$row['id']])->fetch();
+  if($b && $b['status']==='pending_payment'){
+   query("UPDATE bookings SET status='expired' WHERE id=?",[$b['id']]);
+   restoreBookingLoyalty($b);
+  }
+  db()->commit();
+ }
+ $finished=query("SELECT id FROM bookings WHERE status IN ('confirmed','checked_in') AND TIMESTAMP(booking_date,MAKETIME(end_hour,0,0))<=NOW()")->fetchAll();
+ foreach($finished as $row){
+  db()->beginTransaction();
+  $b=query('SELECT * FROM bookings WHERE id=? FOR UPDATE',[$row['id']])->fetch();
+  if($b && in_array($b['status'],['confirmed','checked_in'],true)){
+   query("UPDATE bookings SET status='completed',completed_at=NOW() WHERE id=?",[$b['id']]);
+   awardBookingLoyalty($b['id']);
+  }
+  db()->commit();
+ }
+}
+function loyaltySettings(): array {
+ $row=query('SELECT loyalty_unit_amount,loyalty_points_per_unit,loyalty_discount_cap_percent FROM settings WHERE id=1')->fetch();
+ return [
+  'unit_amount'=>max(1,(float)($row['loyalty_unit_amount']??100)),
+  'points_per_unit'=>max(0,(int)($row['loyalty_points_per_unit']??5)),
+  'discount_cap_percent'=>min(100,max(0,(float)($row['loyalty_discount_cap_percent']??10))),
+ ];
+}
+function loyaltyBalance(int $userId): int {
+ return max(0,(int)(query('SELECT COALESCE(SUM(points),0) FROM loyalty_transactions WHERE user_id=?',[$userId])->fetchColumn() ?: 0));
+}
+function loyaltySummary(int $userId): array {
+ $config=loyaltySettings();
+ return ['balance'=>loyaltyBalance($userId),'unit_amount'=>$config['unit_amount'],'points_per_unit'=>$config['points_per_unit'],'discount_cap_percent'=>$config['discount_cap_percent']];
+}
+function loyaltyTransaction(int $userId,?int $bookingId,int $points,string $type,string $reason=''): void {
+ if($points===0)return;
+ $balance=loyaltyBalance($userId)+$points;
+ if($balance<0)throw new RuntimeException('แต้มสะสมไม่เพียงพอ');
+ query('INSERT INTO loyalty_transactions(user_id,booking_id,points,type,reason,balance_after) VALUES (?,?,?,?,?,?)',[$userId,$bookingId,$points,$type,$reason,$balance]);
+}
+function restoreBookingLoyalty(array $booking): void {
+ if(!(int)$booking['loyalty_points_used'] && !(int)$booking['loyalty_points_earned'])return;
+ $exists=query("SELECT id FROM loyalty_transactions WHERE booking_id=? AND type='restored'",[$booking['id']])->fetch();
+ if($exists)return;
+ $points=(int)$booking['loyalty_points_used']-(int)$booking['loyalty_points_earned'];
+ loyaltyTransaction((int)$booking['user_id'],(int)$booking['id'],$points,'restored','คืนแต้มจากการยกเลิก/คืนเงิน');
+}
+function awardBookingLoyalty(int $bookingId): void {
+ $b=query('SELECT * FROM bookings WHERE id=? FOR UPDATE',[$bookingId])->fetch();
+ if(!$b || $b['loyalty_awarded_at'] || !in_array($b['status'],['completed'],true))return;
+ $config=loyaltySettings();
+ $earned=$config['points_per_unit']>0 ? (int)floor((float)$b['amount']/$config['unit_amount'])*$config['points_per_unit'] : 0;
+ if($earned>0)loyaltyTransaction((int)$b['user_id'],(int)$b['id'],$earned,'earned','แต้มจากการใช้สนามและชำระเงินครบ');
+ query('UPDATE bookings SET loyalty_points_earned=?,loyalty_awarded_at=NOW() WHERE id=?',[$earned,$bookingId]);
 }
 function rateLimit(string $key,int $max): void {
  $key=hash('sha256',$key);

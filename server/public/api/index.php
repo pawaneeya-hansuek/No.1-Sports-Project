@@ -47,7 +47,7 @@ try {
  result(['slots'=>query("SELECT field_id,start_hour,end_hour FROM bookings WHERE booking_date=? AND status IN ('pending_payment','review','confirmed','checked_in','completed')",[$date])->fetchAll(),'server_time'=>date(DATE_ATOM)]);
  }
  if($action==='book'){
-  $u=currentUser();if($u['role']==='admin')fail('บัญชีแอดมินใช้สำหรับจัดการสนามเท่านั้น',403);$d=input();$date=textValue($d['date']??'',10);$start=filter_var($d['start']??null,FILTER_VALIDATE_INT);$end=filter_var($d['end']??null,FILTER_VALIDATE_INT);$field=filter_var($d['field_id']??null,FILTER_VALIDATE_INT);$promo=strtolower(textValue($d['promo_code']??'',40));
+  $u=currentUser();if($u['role']==='admin')fail('บัญชีแอดมินใช้สำหรับจัดการสนามเท่านั้น',403);$d=input();$date=textValue($d['date']??'',10);$start=filter_var($d['start']??null,FILTER_VALIDATE_INT);$end=filter_var($d['end']??null,FILTER_VALIDATE_INT);$field=filter_var($d['field_id']??null,FILTER_VALIDATE_INT);$promo=strtolower(textValue($d['promo_code']??'',40));$requestedPoints=max(0,(int)($d['loyalty_points']??0));
   $dt=DateTimeImmutable::createFromFormat('!Y-m-d',$date);
   if(!$dt||$dt->format('Y-m-d')!==$date||$date<date('Y-m-d')||$date>date('Y-m-d',strtotime('+90 days'))||$start===false||$end===false||$start<9||$end>23||$end<=$start||strtotime($date.sprintf(' %02d:00:00',$start))<=time())fail('เลือกวันและเวลาระหว่าง 09:00–23:00 ภายใน 90 วัน');
   db()->beginTransaction();
@@ -64,10 +64,14 @@ try {
  if($exists){db()->rollBack();fail('เต็มแล้ว มีผู้จองช่วงเวลานี้ กรุณาเลือกเวลาใหม่',409);}
   $code='N1-'.strtoupper(bin2hex(random_bytes(6)));
   $amount=round((float)$f['price']*($end-$start),2);if($promo)$amount=round($amount*(1-$discountPercent/100),2);
-  query('INSERT INTO bookings(code,user_id,field_id,field_name,booking_date,start_hour,end_hour,amount,expires_at) VALUES (?,?,?,?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 15 MINUTE))',[$code,$u['id'],$field,$f['name'],$date,$start,$end,$amount]);
-  $id=(int)db()->lastInsertId();audit((int)$u['id'],$id,'created',$promo?'promo: '.(string)$promotion['promotion_code'].' (-'.$discountPercent.'%)':'');db()->commit();result(publicBooking(bookingForUser($code,$u)));
+  $loyalty=loyaltySettings();$maxDiscount=round($amount*$loyalty['discount_cap_percent']/100,2);$points=min($requestedPoints,loyaltyBalance((int)$u['id']),max(0,(int)floor($maxDiscount)));$loyaltyDiscount=(float)$points;
+  $amount=round($amount-$loyaltyDiscount,2);
+  query('INSERT INTO bookings(code,user_id,field_id,field_name,booking_date,start_hour,end_hour,amount,loyalty_points_used,loyalty_discount,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 15 MINUTE))',[$code,$u['id'],$field,$f['name'],$date,$start,$end,$amount,$points,$loyaltyDiscount]);
+  $id=(int)db()->lastInsertId();if($points>0)loyaltyTransaction((int)$u['id'],$id,-$points,'redeemed','ใช้เป็นส่วนลดการจอง');audit((int)$u['id'],$id,'created',($promo?'promo: '.(string)$promotion['promotion_code'].' (-'.$discountPercent.'%) ':'').($points?'loyalty: -'.$points:''));db()->commit();result(publicBooking(bookingForUser($code,$u)));
  }
  if($action==='my_bookings'){$u=currentUser();result(array_map('publicBooking',query('SELECT b.*,u.name,u.phone,u.email FROM bookings b JOIN users u ON u.id=b.user_id WHERE b.user_id=? ORDER BY b.created_at DESC LIMIT 200',[$u['id']])->fetchAll()));}
+ if($action==='loyalty_summary'){$u=currentUser();result(loyaltySummary((int)$u['id']));}
+ if($action==='loyalty_history'){$u=currentUser();result(query('SELECT l.*,b.code,b.field_name,b.booking_date FROM loyalty_transactions l LEFT JOIN bookings b ON b.id=l.booking_id WHERE l.user_id=? ORDER BY l.created_at DESC,l.id DESC LIMIT 200',[$u['id']])->fetchAll());}
  if($action==='slip'){
   $u=currentUser();$code=textValue($_POST['code']??'',32);$b=bookingForUser($code,$u);
   if($b['status']!=='pending_payment')fail('รายการนี้แนบสลิปไม่ได้แล้ว',409);
@@ -84,7 +88,7 @@ try {
   db()->beginTransaction();
   $s=query("UPDATE bookings SET status='cancelled' WHERE id=? AND status='pending_payment' AND expires_at>NOW()",[$b['id']]);
   if(!$s->rowCount()){db()->rollBack();fail('ยกเลิกได้เฉพาะรายการที่ยังไม่ส่งสลิปและยังไม่หมดเวลา ติดต่อสนามหากโอนแล้ว',409);}
-  audit((int)$u['id'],(int)$b['id'],'cancelled');db()->commit();result(['ok'=>true,'booking'=>publicBooking(bookingForUser($b['code'],$u))]);
+  restoreBookingLoyalty($b);audit((int)$u['id'],(int)$b['id'],'cancelled');db()->commit();result(['ok'=>true,'booking'=>publicBooking(bookingForUser($b['code'],$u))]);
  }
  if($action==='slip_image'){
   $u=admin();$b=bookingForUser(textValue($_GET['code']??'',32),$u);if(!$b['slip_file'])fail('ไม่มีสลิป',404);
@@ -106,6 +110,11 @@ try {
   $popular=query("SELECT field_name,COUNT(*) bookings,COALESCE(SUM(CASE WHEN status IN ('confirmed','checked_in','completed') THEN amount ELSE 0 END),0) revenue FROM bookings GROUP BY field_id,field_name ORDER BY bookings DESC, revenue DESC LIMIT 5")->fetchAll();
   result(['rows'=>array_map('publicBooking',$rows),'total'=>(int)$total,'stats'=>$stats,'dashboard'=>['summary'=>$dashboard,'popular_fields'=>$popular]]);
  }
+ if($action==='admin_loyalty'){
+  admin();$summary=query("SELECT COALESCE(SUM(CASE WHEN points>0 THEN points ELSE 0 END),0) earned,COALESCE(SUM(CASE WHEN points<0 THEN -points ELSE 0 END),0) used FROM loyalty_transactions")->fetch();
+  $customers=query("SELECT u.id,u.name,u.email,u.phone,COALESCE(SUM(l.points),0) balance,COALESCE(SUM(CASE WHEN l.points<0 THEN -l.points ELSE 0 END),0) used FROM users u LEFT JOIN loyalty_transactions l ON l.user_id=u.id WHERE u.role='customer' GROUP BY u.id ORDER BY balance DESC,u.name LIMIT 200")->fetchAll();
+  result(['summary'=>$summary,'customers'=>$customers,'settings'=>loyaltySettings()]);
+ }
  if($action==='admin_action'){
   $u=admin();$d=input();$code=textValue($d['code']??'',100);$type=textValue($d['type']??'',20);$note=textValue($d['note']??'',500);
   db()->beginTransaction();$b=query('SELECT * FROM bookings WHERE code=? OR ticket_token=? FOR UPDATE',[$code,$code])->fetch();
@@ -113,16 +122,19 @@ try {
   if($type==='approve' && $b['status']==='review'){
    if(empty($b['slip_file'])){db()->rollBack();fail('ไม่พบสลิปสำหรับยืนยันการชำระเงิน',409);}
    $finished=strtotime($b['booking_date'].sprintf(' %02d:00:00',$b['end_hour']))<=time();
-   query("UPDATE bookings SET status=?,ticket_token=?,review_note=?,completed_at=? WHERE id=?",[$finished?'completed':'confirmed',bin2hex(random_bytes(32)),$note,$finished?date('Y-m-d H:i:s'):null,$b['id']]);
+  query("UPDATE bookings SET status=?,ticket_token=?,review_note=?,completed_at=? WHERE id=?",[$finished?'completed':'confirmed',bin2hex(random_bytes(32)),$note,$finished?date('Y-m-d H:i:s'):null,$b['id']]);
+  if($finished)awardBookingLoyalty((int)$b['id']);
   }elseif($type==='reject' && $b['status']==='review'){
    if(!$note){db()->rollBack();fail('กรุณาระบุเหตุผลที่ไม่ผ่าน');}
-   query("UPDATE bookings SET status='rejected',review_note=? WHERE id=?",[$note,$b['id']]);
+  query("UPDATE bookings SET status='rejected',review_note=? WHERE id=?",[$note,$b['id']]);restoreBookingLoyalty($b);
   }elseif($type==='checkin' && $b['status']==='confirmed'){
    $begin=strtotime($b['booking_date'].sprintf(' %02d:00:00',$b['start_hour']));$finish=strtotime($b['booking_date'].sprintf(' %02d:00:00',$b['end_hour']));
    if(time()<$begin-1800||time()>=$finish){db()->rollBack();fail('เช็คอินได้ก่อนเวลา 30 นาทีจนถึงเวลาสิ้นสุด',409);}
    query("UPDATE bookings SET status='checked_in',checked_in_at=NOW() WHERE id=?",[$b['id']]);
   }elseif($type==='complete' && $b['status']==='checked_in'){
-   query("UPDATE bookings SET status='completed',completed_at=NOW() WHERE id=?",[$b['id']]);
+   query("UPDATE bookings SET status='completed',completed_at=NOW() WHERE id=?",[$b['id']]);awardBookingLoyalty((int)$b['id']);
+  }elseif($type==='refund' && in_array($b['status'],['confirmed','checked_in','completed'],true)){
+   query("UPDATE bookings SET status='cancelled',review_note=? WHERE id=?",[$note?:'คืนเงินแล้ว',$b['id']]);restoreBookingLoyalty($b);
   }else{db()->rollBack();fail('สถานะเปลี่ยนแล้วหรือไม่สามารถดำเนินการนี้ได้',409);}
   audit((int)$u['id'],(int)$b['id'],$type,$note);db()->commit();result(['ok'=>true,'code'=>$b['code'],'booking'=>publicBooking(bookingForUser($b['code'],$u))]);
  }
@@ -138,8 +150,8 @@ try {
   audit((int)$u['id'],null,'field_saved',(string)$id);result(['ok'=>true,'id'=>$id]);
  }
  if($action==='settings_save'){
-  $u=admin();$d=input();$values=[];foreach(['address','contact','facilities','promotion'] as $k)$values[]=textValue($d[$k]??'', $k==='contact'?120:3000);$promoCode=textValue($d['promotion_code']??'',40);if($promoCode && !preg_match('/^[A-Za-z0-9_-]{3,40}$/',$promoCode))fail('โค้ดโปรโมชั่นใช้ได้เฉพาะ A-Z, 0-9, ขีดกลาง และขีดล่าง');$rawPercent=$d['promotion_percent']??0;$promoPercent=($rawPercent===''||$rawPercent===null)?0:filter_var($rawPercent,FILTER_VALIDATE_FLOAT);if($promoPercent===false||$promoPercent<0||$promoPercent>100)fail('ส่วนลดต้องอยู่ระหว่าง 0 ถึง 100 เปอร์เซ็นต์');$values[]=$promoCode;$values[]=round($promoPercent,2);$values[]=textValue($d['rules']??'',3000);$values[]=!empty($d['booking_enabled'])?1:0;
-  query('UPDATE settings SET address=?,contact=?,facilities=?,promotion=?,promotion_code=?,promotion_percent=?,rules=?,booking_enabled=? WHERE id=1',$values);audit((int)$u['id'],null,'settings_saved');result(['ok'=>true]);
+  $u=admin();$d=input();$values=[];foreach(['address','contact','facilities','promotion'] as $k)$values[]=textValue($d[$k]??'', $k==='contact'?120:3000);$promoCode=textValue($d['promotion_code']??'',40);if($promoCode && !preg_match('/^[A-Za-z0-9_-]{3,40}$/',$promoCode))fail('โค้ดโปรโมชั่นใช้ได้เฉพาะ A-Z, 0-9, ขีดกลาง และขีดล่าง');$rawPercent=$d['promotion_percent']??0;$promoPercent=($rawPercent===''||$rawPercent===null)?0:filter_var($rawPercent,FILTER_VALIDATE_FLOAT);if($promoPercent===false||$promoPercent<0||$promoPercent>100)fail('ส่วนลดต้องอยู่ระหว่าง 0 ถึง 100 เปอร์เซ็นต์');$unit=filter_var($d['loyalty_unit_amount']??100,FILTER_VALIDATE_FLOAT);$rate=filter_var($d['loyalty_points_per_unit']??5,FILTER_VALIDATE_INT);$cap=filter_var($d['loyalty_discount_cap_percent']??10,FILTER_VALIDATE_FLOAT);if($unit===false||$unit<=0||$unit>100000||$rate===false||$rate<0||$rate>1000||$cap===false||$cap<0||$cap>100)fail('ตั้งค่าแต้มไม่ถูกต้อง');$values[]=$promoCode;$values[]=round($promoPercent,2);$values[]=round($unit,2);$values[]=$rate;$values[]=round($cap,2);$values[]=textValue($d['rules']??'',3000);$values[]=!empty($d['booking_enabled'])?1:0;
+  query('UPDATE settings SET address=?,contact=?,facilities=?,promotion=?,promotion_code=?,promotion_percent=?,loyalty_unit_amount=?,loyalty_points_per_unit=?,loyalty_discount_cap_percent=?,rules=?,booking_enabled=? WHERE id=1',$values);audit((int)$u['id'],null,'settings_saved');result(['ok'=>true]);
  }
  if($action==='payment_qr'){
   $u=admin();[$file]=imageUpload('image');query('UPDATE settings SET payment_qr=? WHERE id=1',[$file]);audit((int)$u['id'],null,'payment_qr_uploaded');result(['ok'=>true]);

@@ -27,6 +27,10 @@ CREATE TABLE bookings (
  start_hour TINYINT UNSIGNED NOT NULL,
  end_hour TINYINT UNSIGNED NOT NULL,
  amount DECIMAL(10,2) NOT NULL,
+ loyalty_points_used INT UNSIGNED NOT NULL DEFAULT 0,
+ loyalty_discount DECIMAL(10,2) NOT NULL DEFAULT 0,
+ loyalty_points_earned INT UNSIGNED NOT NULL DEFAULT 0,
+ loyalty_awarded_at DATETIME NULL,
  status ENUM('pending_payment','review','confirmed','checked_in','completed','cancelled','expired','rejected') NOT NULL DEFAULT 'pending_payment',
  expires_at DATETIME NOT NULL,
  ticket_token VARCHAR(64) NULL UNIQUE,
@@ -55,10 +59,28 @@ CREATE TABLE settings (
  promotion TEXT NOT NULL,
  promotion_code VARCHAR(40) NOT NULL DEFAULT '',
  promotion_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
+ loyalty_unit_amount DECIMAL(10,2) NOT NULL DEFAULT 100,
+ loyalty_points_per_unit INT UNSIGNED NOT NULL DEFAULT 5,
+ loyalty_discount_cap_percent DECIMAL(5,2) NOT NULL DEFAULT 10,
  rules TEXT NOT NULL,
  booking_enabled TINYINT(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 INSERT INTO settings (id,address,facilities,promotion,rules) VALUES (1,'','','','กรุณามาถึงก่อนเวลา 15 นาที และแสดงตั๋วให้ผู้ดูแลสนาม');
+CREATE TABLE loyalty_transactions (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ user_id BIGINT UNSIGNED NOT NULL,
+ booking_id BIGINT UNSIGNED NULL,
+ points INT NOT NULL,
+ type ENUM('earned','redeemed','restored','adjusted') NOT NULL,
+ reason VARCHAR(255) NOT NULL DEFAULT '',
+ balance_after INT UNSIGNED NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY (user_id) REFERENCES users(id),
+ FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL,
+ UNIQUE KEY loyalty_booking_type (booking_id,type),
+ INDEX loyalty_user_history (user_id,created_at),
+ INDEX loyalty_booking (booking_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE audit_logs (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  actor_id BIGINT UNSIGNED NOT NULL,

@@ -1,0 +1,278 @@
+/* Shared stadium details and motion. All effects are optional enhancements. */
+:root {
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-spring: cubic-bezier(.2, .8, .2, 1.15);
+}
+html { scrollbar-gutter: stable; scroll-behavior: smooth; scroll-padding-top: 108px; }
+::selection { background: #bfff32; color: #102319; }
+.reading-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--lime);
+  transform: scaleX(var(--page-progress, 0));
+  transform-origin: left;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 0 14px #bfff3270;
+}
+.route-view { animation: page-arrive .28s ease-out; }
+.site-header { transition: box-shadow .3s ease, background-color .3s ease; }
+.page-scrolled .site-header { box-shadow: 0 8px 30px #041a1726; }
+.nav nav a::before {
+  content: '';
+  position: absolute;
+  inset: auto 0 8px;
+  height: 3px;
+  border-radius: 8px;
+  background: var(--lime);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .3s var(--ease-out);
+}
+.nav nav a:hover::before, .nav nav a:focus-visible::before { transform: scaleX(1); }
+.nav nav .active::after { animation: nav-arrive .35s var(--ease-out); }
+.nav-tool, .icon-button, .share-button, .hero-explore,
+.auth-tabs button, .admin-tabs button, .mobile-nav a, .mobile-nav button {
+  transition: background-color .22s ease, color .22s ease, box-shadow .22s ease, transform .25s var(--ease-out);
+}
+.button { position: relative; transition: transform .28s var(--ease-out), background-color .22s ease, box-shadow .28s ease; }
+.button svg, .hero-explore svg, .field-info svg { transition: transform .3s var(--ease-out); }
+.button:hover:not(:disabled) svg, .hero-explore:hover svg { transform: translate(3px, -2px); }
+.button:active:not(:disabled), .icon-button:active:not(:disabled), .nav-tool:active, .share-button:active { transform: scale(.97); }
+.button:disabled:hover { transform: none; box-shadow: none; }
+.button:disabled:hover svg { transform: none; }
+:where(input, select, textarea) { transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease; }
+textarea:focus-visible, summary:focus-visible { outline: 3px solid #84b334; outline-offset: 4px; }
+.hero { isolation: isolate; }
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(480px circle at var(--light-x, 25%) var(--light-y, 40%), #bfff3228, transparent 75%);
+  opacity: var(--light-opacity, .2);
+  transition: opacity .5s ease;
+}
+.hero-content { position: relative; }
+.hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 22px; margin-top: 28px; }
+.hero-actions .button { padding: 15px 22px; }
+.hero-explore { display: inline-flex; align-items: center; gap: 10px; padding: 12px 0; background: transparent; border: 0; color: #edf5ed; font-size: 14px; }
+.hero h1 span { position: relative; }
+.hero h1 span::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -.08em;
+  width: 100%;
+  height: 5px;
+  background: var(--lime);
+  transform: rotate(-4deg);
+  border-radius: 100%;
+  opacity: .65;
+}
+.quick-book::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 24px;
+  right: 24px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #cfff80b3, transparent);
+}
+.hero .live-dot { box-shadow: 0 0 0 5px #bfff3215; }
+.quick-head .live-dot { animation: live-signal 2.6s ease-out 3; }
+.hero-details { margin-top: 25px; }
+.benefit-strip > span svg { transition: transform .3s var(--ease-spring); }
+.benefit-strip > span:hover svg { transform: rotate(-10deg) scale(1.12); }
+.section-head .eyebrow, .facilities-intro .eyebrow, .how-section .eyebrow { margin-bottom: 12px; }
+.field-card, .booking-ticket, .facilities-grid > div, .iso-practices article,
+.admin-page .stats-grid > div, .steps article {
+  transition: transform .35s var(--ease-out), border-color .25s ease, box-shadow .35s ease, background-color .25s ease;
+}
+.field-card.selected { border-color: #719b31; box-shadow: 0 0 0 2px #93bd4926, 0 12px 32px #18391d12; }
+.field-photo { overflow: hidden; }
+.field-photo img { transition: transform .65s var(--ease-out); }
+.selected-check { animation: selection-arrive .28s var(--ease-spring); }
+.date-card, .time-slot { transition: transform .25s var(--ease-out), background-color .22s ease, box-shadow .25s ease, border-color .22s ease; }
+.time-slot.selected, .date-card.selected { animation: selection-arrive .25s var(--ease-out); }
+.time-slot:active:not(:disabled), .date-card:active { transform: scale(.96); }
+.booking-summary { overflow: hidden; box-shadow: 0 22px 50px #071b1424; }
+.booking-summary::before {
+  content: '';
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 25px;
+  right: 25px;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--lime), transparent);
+}
+.total-row strong, .stats-grid strong { font-variant-numeric: tabular-nums; }
+.progress-line span { transition: width .55s var(--ease-out); }
+.progress-steps b { transition: background-color .25s ease, color .25s ease; }
+.promo-applied { animation: content-arrive .3s var(--ease-out); }
+.promotion-section { position: relative; isolation: isolate; overflow: hidden; border-radius: 24px; }
+.promotion-section::before {
+  content: '';
+  position: absolute;
+  width: 390px;
+  height: 390px;
+  border: 1px solid #bfff3226;
+  border-radius: 50%;
+  right: -30px;
+  top: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 65px #bfff3208, 0 0 0 130px #bfff3205;
+  z-index: -1;
+  pointer-events: none;
+}
+.promo-mark { transition: transform .6s var(--ease-out); }
+.steps article { position: relative; border-radius: 16px; padding: 24px; background: var(--surface); border: 1px solid var(--line); }
+.steps article > span { position: static; margin-bottom: 12px; display: inline-block; transition: transform .35s var(--ease-spring); }
+.rules { overflow: hidden; border-radius: 14px; }
+.rules summary { min-height: 56px; transition: background-color .2s ease; }
+.rules[open] > p { animation: content-arrive .3s var(--ease-out); }
+.rules[open] summary { border-bottom: 1px solid var(--line); }
+.page-title {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: linear-gradient(115deg, var(--surface) 30%, var(--surface-soft));
+}
+.page-title::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  width: 220px;
+  height: 220px;
+  right: 4%;
+  top: -95px;
+  border: 1px solid #80a84a26;
+  border-radius: 50%;
+  box-shadow: 0 0 0 38px #80a84a0a, 0 0 0 76px #80a84a06;
+  pointer-events: none;
+}
+.booking-ticket { position: relative; overflow: hidden; }
+.ticket-left { border-left: 4px solid var(--lime); }
+.empty-state { position: relative; padding-block: 70px; border: 1px dashed var(--line); border-radius: 20px; background: var(--surface); animation: content-arrive .4s var(--ease-out); }
+.empty-state > svg { box-sizing: content-box; padding: 20px; border-radius: 24px; background: var(--surface-soft); color: #729b35; margin-bottom: 8px; }
+.admin-page .stats-grid > div { position: relative; overflow: hidden; border-top: 3px solid #9dc34f; }
+.admin-page .stats-grid > div:nth-child(2) { border-top-color: #e6b65b; }
+.admin-page .stats-grid > div:nth-child(3) { border-top-color: #69bca0; }
+.admin-page .stats-grid > .revenue { border-top-color: var(--lime); }
+.admin-page .stats-grid strong { letter-spacing: -.035em; }
+.admin-page .panel, .admin-page .settings-form, .admin-page .manage-fields { animation: content-arrive .35s var(--ease-out); }
+.admin-page tbody tr { transition: background-color .2s ease; }
+.admin-page .admin-tabs button.selected { animation: selection-arrive .25s var(--ease-out); }
+.admin-tabs, .auth-tabs { scroll-behavior: smooth; }
+.admin-page .admin-sync button:disabled svg { animation: refresh-turn 1.2s linear infinite; }
+.modal { border-radius: 22px; border: 1px solid var(--line); overscroll-behavior: contain; }
+.modal[open] { animation: dialog-arrive .32s var(--ease-out); }
+.modal[open]::backdrop { animation: page-arrive .24s ease-out; }
+.modal-inner { border-top: 3px solid var(--lime); animation: content-arrive .28s var(--ease-out); }
+.auth-form { animation: content-arrive .25s var(--ease-out); }
+.modal-close:hover { transform: rotate(90deg); }
+body:has(dialog[open]) { overflow: hidden; }
+.modal input:focus-visible, .modal select:focus-visible, .modal textarea:focus-visible { outline-offset: 2px; }
+.toast { border: 1px solid #bfff3240; box-shadow: 0 14px 40px #071b1429; }
+.notification-enter-active, .notification-leave-active { transition: opacity .25s ease, translate .3s var(--ease-out); }
+.notification-enter-from, .notification-leave-to { opacity: 0; translate: 0 14px; }
+.back-to-top {
+  position: fixed;
+  right: 24px;
+  bottom: 28px;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid #bfff3245;
+  border-radius: 50%;
+  background: #10291f;
+  color: var(--lime);
+  box-shadow: 0 8px 24px #071b1433;
+  transition: transform .25s var(--ease-out), box-shadow .25s ease;
+}
+.back-to-top:hover { transform: translateY(-4px); box-shadow: 0 12px 28px #071b1445; }
+.float-control-enter-active, .float-control-leave-active { transition: opacity .2s ease, translate .25s var(--ease-out); }
+.float-control-enter-from, .float-control-leave-to { opacity: 0; translate: 0 12px; }
+.skeleton-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+.skeleton-card { padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.skeleton-card > div, .skeleton-card > span { display: block; overflow: hidden; position: relative; background: var(--surface-soft); border-radius: 8px; }
+.skeleton-card > div { height: 150px; }
+.skeleton-card > span { height: 14px; margin-top: 14px; }
+.skeleton-card > span:last-child { width: 60%; margin-bottom: 10px; }
+.skeleton-card > *::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, #9fb88126, transparent); animation: skeleton-sweep 1.6s ease-in-out infinite; }
+.field-loading > p { text-align: center; font-size: 13px; color: var(--text-muted); }
+@media (hover: hover) and (pointer: fine) {
+  .field-card:hover { transform: translateY(-5px); box-shadow: 0 20px 38px #17352118; }
+  .field-card:hover .field-photo img { transform: scale(1.055); }
+  .field-card:hover .field-info svg { transform: translate(3px, -3px); }
+  .facilities-grid > div:hover, .iso-practices article:hover, .steps article:hover { transform: translateY(-5px); border-color: #91b859; box-shadow: 0 16px 36px #1735210f; }
+  .steps article:hover > span { transform: translateX(5px); }
+  .booking-ticket:hover, .admin-page .stats-grid > div:hover { transform: translateY(-3px); box-shadow: 0 18px 40px #17352114; }
+  .time-slot.free:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 6px 16px #719b3126; }
+  .promotion-section:hover .promo-mark { transform: rotate(-5deg) scale(1.04); }
+}
+[data-theme='dark'] .page-title { background: linear-gradient(115deg, #14271f 30%, #1c3326); }
+[data-theme='dark'] .steps article, [data-theme='dark'] .modal { background: #14271f; color: #e8f1e9; border-color: #31483d; }
+[data-theme='dark'] .modal .muted, [data-theme='dark'] .modal .small { color: #acbfb1; }
+[data-theme='dark'] .auth-tabs, [data-theme='dark'] .modal-close { background: #223b2e; color: #e8f1e9; }
+[data-theme='dark'] .auth-tabs button { color: #bdcec1; }
+[data-theme='dark'] .auth-tabs button.selected { background: var(--lime); color: #14271f; }
+[data-theme='dark'] .mobile-nav { background: #10251ff2; border-color: #31483d; color: #afc2b6; }
+[data-theme='dark'] .mobile-nav a.active, [data-theme='dark'] .mobile-nav a.active svg { color: var(--lime); }
+[data-theme='dark'] .admin-page .stats-grid .revenue { background: #203828; }
+[data-theme='dark'] {
+  --line: #31483d;
+  --surface-soft: #1b3328;
+  --text-muted: #a7b9ad;
+}
+[data-theme='dark'] .eyebrow.green { color: #b4ce94; }
+[data-theme='dark'] .button.outline { color: #d5e5d9; border-color: #47604f; background: transparent; }
+[data-theme='dark'] .button.outline:hover:not(:disabled) { background: #233b2e; }
+[data-theme='dark'] .text-button { color: #c2e990; }
+[data-theme='dark'] .mobile-nav a, [data-theme='dark'] .mobile-nav button { color: #afc2b6; }
+[data-theme='dark'] .mobile-nav a.active, [data-theme='dark'] .mobile-nav a.active svg { color: var(--lime); }
+[data-theme='dark'] .modal .sample-note { background: #233b2c; color: #c2d2b2; }
+/* Keep existing labels and English translations authoritative. */
+body:has(.admin-page) .stats-grid > div:nth-child(1) > span,
+body:has(.admin-page) .stats-grid > div:nth-child(4) > span { font-size: 12px; }
+body:has(.admin-page) .stats-grid > div:nth-child(1) > span::after,
+body:has(.admin-page) .stats-grid > div:nth-child(4) > span::after { content: none; }
+@media (max-width: 760px) {
+  html { scroll-padding-top: 88px; }
+  .page-title { padding: 24px 20px; border-radius: 18px; }
+  .hero-actions { gap: 8px 18px; margin-top: 22px; }
+  .hero-actions .button { padding: 13px 18px; }
+  .hero-explore { font-size: 13px; }
+  .hero-details { margin-top: 20px; }
+  .steps article { padding: 22px; }
+  .back-to-top { right: 16px; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); width: 44px; height: 44px; }
+  .mobile-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .mobile-nav a.active svg { transform: translateY(-2px); }
+  .skeleton-grid { grid-template-columns: 1fr; }
+  .skeleton-card:not(:first-child) { display: none; }
+  .modal { max-height: 88dvh; }
+}
+@keyframes page-arrive { from { opacity: 0; } to { opacity: 1; } }
+@keyframes content-arrive { from { opacity: 0; translate: 0 12px; } to { opacity: 1; translate: 0 0; } }
+@keyframes dialog-arrive { from { opacity: 0; transform: translateY(16px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes selection-arrive { from { scale: .97; } to { scale: 1; } }
+@keyframes nav-arrive { from { transform: scaleX(.2); } to { transform: scaleX(1); } }
+@keyframes live-signal { 0% { box-shadow: 0 0 0 0 #bfff3266; } 70%, 100% { box-shadow: 0 0 0 7px #bfff3200; } }
+@keyframes skeleton-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes refresh-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  html, .admin-tabs, .auth-tabs { scroll-behavior: auto !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .hero::after { display: none; }
+  .field-card:hover, .booking-ticket:hover, .facilities-grid > div:hover,
+  .iso-practices article:hover, .steps article:hover, .admin-page .stats-grid > div:hover,
+  .button:hover, .date-card:hover, .time-slot.free:hover:not(:disabled), .back-to-top:hover { transform: none; }
+}

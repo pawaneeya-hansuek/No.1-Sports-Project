@@ -1,3 +1,4 @@
+import { scrollBehavior } from "./motion";
 import { ref, computed, watch, nextTick } from "vue";
 import QRCode from "qrcode";
 import jsQR from "jsqr";
@@ -13,6 +14,24 @@ import {
   labels,
 } from "./api";
 export { PREVIEW, displayDate, labels };
+const browserStorage = typeof window !== "undefined" ? window.localStorage : null;
+export const locale = ref(browserStorage?.getItem("no1-locale") || "th");
+export const theme = ref(browserStorage?.getItem("no1-theme") || "light");
+export function toggleLocale() {
+  locale.value = locale.value === "th" ? "en" : "th";
+  browserStorage?.setItem("no1-locale", locale.value);
+  if (typeof document !== "undefined") document.documentElement.lang = locale.value;
+}
+export function toggleTheme() {
+  theme.value = theme.value === "dark" ? "light" : "dark";
+  browserStorage?.setItem("no1-theme", theme.value);
+  if (typeof document !== "undefined") document.documentElement.dataset.theme = theme.value;
+}
+if (typeof document !== "undefined") {
+  document.documentElement.lang = locale.value;
+  document.documentElement.dataset.theme = theme.value;
+}
+export const t = (thai, english) => (locale.value === "th" ? thai : english);
 export const route = ref(location.hash.slice(1) || "home"),
   user = ref(null),
   fields = ref(PREVIEW ? previewFields : []),
@@ -22,6 +41,9 @@ export const route = ref(location.hash.slice(1) || "home"),
     promotion: PREVIEW ? previewSettings.promotion : "",
     promotion_code: PREVIEW ? previewSettings.promotion_code : "",
     promotion_percent: PREVIEW ? previewSettings.promotion_percent : 0,
+    loyalty_unit_amount: PREVIEW ? 100 : 100,
+    loyalty_points_per_unit: PREVIEW ? 5 : 5,
+    loyalty_discount_cap_percent: PREVIEW ? 10 : 10,
   });
 export const today = bangkokDate(),
   selectedDate = ref(today),
@@ -43,6 +65,9 @@ export const modal = ref(""),
   auth = ref({ name: "", email: "", phone: "", identity: "", password: "" }),
   myBookings = ref([]),
   activeBooking = ref(null),
+  loyalty = ref({ balance: 0, unit_amount: 100, points_per_unit: 5, discount_cap_percent: 10 }),
+  loyaltyHistory = ref([]),
+  useLoyaltyPoints = ref(false),
   qr = ref(""),
   slip = ref(null),
   slotPage = ref(0);
@@ -55,6 +80,7 @@ export const adminRows = ref([]),
   adminFilter = ref(""),
   adminSearch = ref(""),
   adminAppliedSearch = ref(""),
+  adminNewBookingCodes = ref([]),
   adminSectionLoading = ref(false),
   adminSectionError = ref(""),
   adminTab = ref("bookings"),
@@ -77,7 +103,8 @@ export const adminRows = ref([]),
   fieldDraft = ref({}),
   settingsDraft = ref({}),
   reviewNote = ref("");
-const editableSettings = ['address', 'contact', 'facilities', 'promotion', 'promotion_code', 'promotion_percent', 'rules', 'booking_enabled'];
+export const adminLoyalty = ref({ summary: { earned: 0, used: 0 }, customers: [], settings: {} });
+const editableSettings = ['address', 'contact', 'facilities', 'promotion', 'promotion_code', 'promotion_percent', 'loyalty_unit_amount', 'loyalty_points_per_unit', 'loyalty_discount_cap_percent', 'rules', 'booking_enabled'];
 const settingsBaseline = ref("");
 const settingsSnapshot = () => JSON.stringify(editableSettings.map(k => settingsDraft.value[k]));
 export const settingsDirty = computed(() => settingsBaseline.value !== "" && settingsSnapshot() !== settingsBaseline.value);
@@ -101,10 +128,50 @@ let stream,
   availabilityRequest = 0,
   mineRequest = 0,
   adminRequest = 0,
+  adminHasLoaded = false,
+  adminKnownBookingCodes = new Set(),
+  adminLastQuery = "",
   lastAvailabilityDate = "";
 export const money = (n) =>
     Number(n || 0).toLocaleString("th-TH", { maximumFractionDigits: 2 }),
   hour = (n) => String(n).padStart(2, "0") + ":00";
+export function mapUrl(address = settings.value.address) {
+  const value = String(address || "").trim();
+  const embed = value.match(/<iframe[^>]+src=["'](https:\/\/www\.google\.com\/maps\/embed[^"']+)["']/i)?.[1] || (value.startsWith("https://www.google.com/maps/embed") ? value : "");
+  if (embed) return embed;
+  return value ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}` : "";
+}
+export function mapEmbedUrl(address = settings.value.address) {
+  const value = String(address || "").trim();
+  const embed = value.match(/<iframe[^>]+src=["'](https:\/\/www\.google\.com\/maps\/embed[^"']+)["']/i)?.[1] || (value.startsWith("https://www.google.com/maps/embed") ? value : "");
+  if (embed) return embed;
+  return value ? `https://www.google.com/maps?q=${encodeURIComponent(value)}&output=embed` : "";
+}
+export function isMapLink(address = settings.value.address) {
+  const value = String(address || "").trim();
+  return /<iframe[^>]+src=["']https:\/\/www\.google\.com\/maps\/embed/i.test(value) || /^https?:\/\/(?:maps\.app\.goo\.gl|www\.google\.com\/maps|maps\.google\.[^/]+)/i.test(value);
+}
+function notifyBookingReminder(booking) {
+  const key = `no1-reminder-${booking.code}-${booking.booking_date}-${booking.start_hour}`;
+  if (browserStorage?.getItem(key)) return;
+  browserStorage?.setItem(key, "1");
+  const message = `ใกล้ถึงเวลาเล่น ${booking.field_name} เวลา ${hour(booking.start_hour)} น.`;
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    new Notification("No.1 Sports เตือนการจองสนาม", { body: message });
+  } else {
+    toast(message);
+  }
+}
+function checkBookingReminders(rows) {
+  if (PREVIEW) return;
+  const now = Date.now();
+  rows.forEach((booking) => {
+    if (!['confirmed', 'checked_in'].includes(booking.status)) return;
+    const start = new Date(`${booking.booking_date}T${hour(booking.start_hour)}:00+07:00`).getTime();
+    const minutes = (start - now) / 60000;
+    if (minutes > 0 && minutes <= 60) notifyBookingReminder(booking);
+  });
+}
 export const dates = computed(() =>
   Array.from({ length: 7 }, (_, i) => {
     let d = new Date(today + "T12:00:00+07:00");
@@ -129,13 +196,16 @@ export const chosenField = computed(
   total = computed(
     () => baseTotal.value - promoSavings.value,
   ),
+  loyaltyPointsAvailable = computed(() => Math.min(Number(loyalty.value.balance) || 0, Math.max(0, Math.floor(total.value * (Number(loyalty.value.discount_cap_percent) || 0) / 100)))),
+  loyaltyDiscount = computed(() => useLoyaltyPoints.value ? loyaltyPointsAvailable.value : 0),
+  finalTotal = computed(() => Math.max(0, total.value - loyaltyDiscount.value)),
   isAdmin = computed(() => user.value?.role === "admin"),
   canAdmin = computed(() => isAdmin.value || PREVIEW),
   calendarMax = bangkokDate(new Date(Date.now() + 90 * 86400000));
 export function navigate(path) {
   location.hash = path;
   route.value = path;
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: scrollBehavior() });
 }
 export function routeForAccount() {
   if (PREVIEW || !user.value) return false;
@@ -147,7 +217,7 @@ export function routeForAccount() {
 export function scrollBooking() {
   navigate("home");
   nextTick(() =>
-    document.getElementById("booking")?.scrollIntoView({ behavior: "smooth" }),
+    document.getElementById("booking")?.scrollIntoView({ behavior: scrollBehavior() }),
   );
 }
 export async function shareBooking() {
@@ -203,6 +273,7 @@ export async function boot() {
   try {
     const d = await api("bootstrap");
     user.value = d.user;
+    loyalty.value = d.user?.loyalty || loyalty.value;
     setCsrf(d.csrf);
     fields.value = d.fields;
     settings.value = d.settings;
@@ -214,6 +285,7 @@ export async function boot() {
     offline.value = "";
     await refreshAvailability();
     if (user.value) await refreshMine();
+    if (user.value) await refreshLoyalty();
   } catch (e) {
     offline.value = e.message;
   } finally {
@@ -280,6 +352,7 @@ export async function refreshMine() {
   const rows = await api("my_bookings");
   if (request !== mineRequest || owner !== user.value) return;
   myBookings.value = rows;
+  checkBookingReminders(rows);
   if (activeBooking.value && route.value !== "admin") {
     const current = myBookings.value.find(
       (b) => b.code === activeBooking.value.code,
@@ -289,6 +362,7 @@ export async function refreshMine() {
 }
 export async function refreshAdmin() {
   if (!canAdmin.value) return;
+  const queryKey = `${adminPage.value}|${adminFilter.value}|${adminAppliedSearch.value}`;
   if (PREVIEW) {
     adminRows.value = previewBookings().filter(
       (b) =>
@@ -296,6 +370,9 @@ export async function refreshAdmin() {
         (!adminAppliedSearch.value || [b.code, b.name, b.phone].some(v => String(v || '').toLowerCase().includes(adminAppliedSearch.value.toLowerCase()))),
     );
     adminTotal.value = adminRows.value.length;
+    adminKnownBookingCodes = new Set(adminRows.value.map((b) => b.code));
+    adminHasLoaded = true;
+    adminLastQuery = queryKey;
     stats.value = { total: 2, review: 1, playing: 0, revenue: 800 };
     return;
   }
@@ -310,6 +387,19 @@ export async function refreshAdmin() {
   });
   if (request !== adminRequest || owner !== user.value) return;
   adminRows.value = d.rows;
+  const incoming = adminHasLoaded && adminLastQuery === queryKey
+    ? d.rows.filter((b) => !adminKnownBookingCodes.has(b.code))
+    : [];
+  if (incoming.length) {
+    const incomingCodes = incoming.map((b) => b.code);
+    adminNewBookingCodes.value = [...new Set([...adminNewBookingCodes.value, ...incomingCodes])];
+    toast(`มีการจองใหม่ ${incoming.length} รายการ`);
+    if (typeof Notification !== "undefined" && Notification.permission === "granted")
+      new Notification("No.1 Sports มีการจองใหม่", { body: `${incoming.length} รายการ รอตรวจสอบในหลังบ้าน` });
+  }
+  d.rows.forEach((b) => adminKnownBookingCodes.add(b.code));
+  adminHasLoaded = true;
+  adminLastQuery = queryKey;
   if (activeBooking.value && modal.value === 'review') {
     const current = d.rows.find(b => b.code === activeBooking.value.code);
     if (current) activeBooking.value = current;
@@ -367,7 +457,13 @@ export async function logout() {
     setCsrf(d.csrf);
     user.value = null;
     myBookings.value = [];
+    loyalty.value = { balance: 0, unit_amount: 100, points_per_unit: 5, discount_cap_percent: 10 };
+    loyaltyHistory.value = [];
     adminRows.value = [];
+    adminNewBookingCodes.value = [];
+    adminKnownBookingCodes.clear();
+    adminHasLoaded = false;
+    adminLastQuery = "";
     ++adminRequest;
     ++adminSectionRequest;
     adminLoading.value = false;
@@ -409,10 +505,12 @@ export async function book() {
       start: selectedHour.value,
       end: selectedHour.value + Number(duration.value),
       promo_code: promoCode.value.trim(),
+      loyalty_points: useLoyaltyPoints.value ? loyaltyPointsAvailable.value : 0,
     });
     slip.value = null;
+    useLoyaltyPoints.value = false;
     show("payment");
-    await Promise.allSettled([refreshMine(), refreshAvailability()]);
+    await Promise.allSettled([refreshMine(), refreshLoyalty(), refreshAvailability()]);
   });
 }
 export function openBooking(b) {
@@ -434,7 +532,7 @@ export async function sendSlip() {
     slip.value = null;
     show("ticket");
     toast("ส่งสลิปแล้ว กำลังรอผู้ดูแลตรวจสอบ");
-    await Promise.allSettled([refreshMine(), refreshAvailability()]);
+    await Promise.allSettled([refreshMine(), refreshLoyalty(), refreshAvailability()]);
   });
 }
 export async function cancelBooking() {
@@ -443,13 +541,45 @@ export async function cancelBooking() {
     activeBooking.value = response.booking;
     close();
     toast("ยกเลิกการจองแล้ว");
-    await Promise.allSettled([refreshMine(), refreshAvailability()]);
+    await Promise.allSettled([refreshMine(), refreshLoyalty(), refreshAvailability()]);
   });
+}
+export async function refreshLoyalty() {
+  if (PREVIEW || !user.value) return;
+  const [summary, history] = await Promise.all([api('loyalty_summary'), api('loyalty_history')]);
+  loyalty.value = summary;
+  loyaltyHistory.value = history;
+  user.value.loyalty = summary;
 }
 export function openReview(b) {
   activeBooking.value = b;
+  adminNewBookingCodes.value = adminNewBookingCodes.value.filter((code) => code !== b.code);
   reviewNote.value = "";
   show("review");
+}
+export async function enableAdminNotifications() {
+  if (typeof Notification === "undefined") {
+    toast("เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน");
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  toast(permission === "granted" ? "เปิดการแจ้งเตือนการจองแล้ว" : "ยังไม่ได้เปิดการแจ้งเตือน");
+}
+export async function enableBookingNotifications() {
+  if (typeof Notification === "undefined") {
+    toast("เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน");
+    return;
+  }
+  if (!window.isSecureContext && location.hostname !== "localhost") {
+    toast("มือถือจำเป็นต้องเปิดเว็บผ่าน HTTPS จึงจะแจ้งเตือนได้");
+    return;
+  }
+  if (Notification.permission === "denied") {
+    toast("การแจ้งเตือนถูกปิดอยู่ ให้เปิดสิทธิ์ในตั้งค่าเบราว์เซอร์");
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  toast(permission === "granted" ? "เปิดแจ้งเตือนก่อนถึงเวลาเล่นแล้ว" : "ยังไม่ได้เปิดการแจ้งเตือน");
 }
 export async function action(type) {
   await run(async () => {
@@ -618,6 +748,7 @@ export async function saveSettings() {
     await api("settings_save", saved);
     Object.assign(settings.value, saved);
     settingsBaseline.value = JSON.stringify(editableSettings.map(k => saved[k]));
+    loyalty.value = { ...loyalty.value, unit_amount: Number(saved.loyalty_unit_amount), points_per_unit: Number(saved.loyalty_points_per_unit), discount_cap_percent: Number(saved.loyalty_discount_cap_percent) };
     toast("บันทึกการตั้งค่าแล้ว");
   });
 }
@@ -654,11 +785,12 @@ export async function refreshAdminSection() {
   adminSectionError.value = '';
   adminSectionLoading.value = true;
   try {
-    if (tab === 'fields' || tab === 'audit') {
-      const result = await api(tab === 'fields' ? 'admin_fields' : 'audit');
+    if (tab === 'fields' || tab === 'audit' || tab === 'loyalty') {
+      const result = await api(tab === 'fields' ? 'admin_fields' : tab === 'audit' ? 'audit' : 'admin_loyalty');
       if (request !== adminSectionRequest || owner !== user.value) return;
       if (tab === 'fields') allFields.value = result;
-      else logs.value = result;
+      else if (tab === 'audit') logs.value = result;
+      else adminLoyalty.value = result;
     }
   } catch (e) {
     if (request === adminSectionRequest && owner === user.value) adminSectionError.value = e.message;
@@ -694,6 +826,7 @@ watch(route, async (r) => {
   try {
     if (routeForAccount()) return;
     if (r === "bookings" && user.value) await refreshMine();
+    if (r === "loyalty" && user.value) await refreshLoyalty();
     if (r === "admin") await loadAdmin();
   } catch (e) {
     toast(e.message);

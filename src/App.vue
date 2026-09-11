@@ -1,4 +1,5 @@
 <script setup>
+import { reveal as vReveal } from "./motion";
 import { onMounted, onUnmounted, nextTick } from "vue";
 import {
   ArrowUpRight,
@@ -11,10 +12,14 @@ import {
   CheckCircle2,
   ShieldCheck,
   Plus,
+  Languages,
+  Moon,
+  Sun,
 } from "lucide-vue-next";
 import Home from "./Home.vue";
 import Admin from "./Admin.vue";
 import Modals from "./Modals.vue";
+import PageEffects from "./PageEffects.vue";
 import { startPolling } from "./polling";
 import {
   PREVIEW,
@@ -26,6 +31,8 @@ import {
   offline,
   notice,
   myBookings,
+  loyalty,
+  loyaltyHistory,
   authMode,
   today,
   calendarMax,
@@ -47,13 +54,22 @@ import {
   money,
   hour,
   displayDate,
+  mapUrl,
+  mapEmbedUrl,
+  isMapLink,
   labels,
   navigate,
+  locale,
+  theme,
+  toggleLocale,
+  toggleTheme,
+  t,
 } from "./state";
 let timer;
 const lifecycle = new AbortController();
 function hashChange() {
-  route.value = location.hash.slice(1) || "home";
+  const destination = location.hash.slice(1) || "home";
+  if (route.value !== destination) navigate(destination);
   routeForAccount();
 }
 onMounted(async () => {
@@ -133,6 +149,7 @@ onUnmounted(() => {
 });
 </script>
 <template>
+  <PageEffects />
   <div v-if="PREVIEW" class="preview-banner">
     โหมดตัวอย่าง • สนาม ราคา และข้อมูลการจองเป็นตัวอย่าง
     ยังไม่รับจองหรือชำระเงินจริง <a href="#admin">ดูหน้าแอดมิน ↗</a>
@@ -143,13 +160,21 @@ onUnmounted(() => {
       ><span>NO.1 <b>SPORTS</b><small>THE HOME OF YOUR GAME</small></span></a
     >
     <nav>
-      <a :class="{ active: route === 'home' }" href="#home">หน้าแรก</a
-      ><a href="#home" @click.prevent="scrollBooking">จองสนาม</a
+      <a :class="{ active: route === 'home' }" href="#home">{{ t("หน้าแรก", "Home") }}</a
+      ><a href="#home" @click.prevent="scrollBooking">{{ t("จองสนาม", "Book a field") }}</a
       ><a :class="{ active: route === 'bookings' }" href="#bookings"
-        >ตั๋วของฉัน</a
-      ><a v-if="isAdmin" href="#admin">จัดการสนาม</a>
+        >{{ t("ตั๋วของฉัน", "My tickets") }}</a
+      ><a :class="{ active: route === 'loyalty' }" href="#loyalty"
+        >{{ t("แต้มสะสม", "Loyalty points") }}</a
+      ><a v-if="isAdmin" href="#admin">{{ t("จัดการสนาม", "Manage fields") }}</a>
     </nav>
     <div class="nav-user">
+      <button class="nav-tool" @click="toggleLocale" :aria-label="t('เปลี่ยนเป็นภาษาอังกฤษ', 'Switch to Thai')">
+        <Languages :size="16" /><span>{{ locale === "th" ? "EN" : "ไทย" }}</span>
+      </button>
+      <button class="nav-tool" @click="toggleTheme" :aria-label="t('เปิดโหมดมืด', 'Switch to light theme')">
+        <Sun v-if="theme === 'dark'" :size="17" /><Moon v-else :size="17" />
+      </button>
       <button
         v-if="!user"
         class="button dark"
@@ -158,7 +183,7 @@ onUnmounted(() => {
           show('auth');
         "
       >
-        เข้าสู่ระบบ <ArrowUpRight :size="17" /></button
+        {{ t("เข้าสู่ระบบ", "Log in") }} <ArrowUpRight :size="17" /></button
       ><template v-else
         ><span>{{ user.name }}</span
         ><button class="icon-button" @click="logout" aria-label="ออกจากระบบ">
@@ -170,20 +195,21 @@ onUnmounted(() => {
     {{ offline }}
     <button class="text-button" @click="boot">ลองเชื่อมต่อใหม่</button>
   </div>
+  <div :key="route" class="route-view">
   <Home v-if="route === 'home'" /><Admin v-else-if="route === 'admin'" />
   <main v-else-if="route === 'bookings'" class="page-container">
-    <div class="page-title">
+    <div v-reveal class="page-title">
       <div>
         <div class="eyebrow green">YOUR NEXT KICK-OFF</div>
-        <h1>ตั๋วของฉัน</h1>
-        <p>ดูสถานะการชำระเงินและตั๋วเข้าสนามของคุณ</p>
+        <h1>{{ t("ตั๋วของฉัน", "My tickets") }}</h1>
+        <p>{{ t("ดูสถานะการชำระเงินและตั๋วเข้าสนามของคุณ", "View your payment status and tickets.") }}</p>
       </div>
-      <a class="button dark" href="#home">จองสนามเพิ่ม <Plus :size="18" /></a>
+      <a class="button dark" href="#home">{{ t("จองสนามเพิ่ม", "Book another field") }} <Plus :size="18" /></a>
     </div>
     <div v-if="!user && !PREVIEW" class="empty-state">
       <Ticket :size="40" />
-      <h2>เข้าสู่ระบบเพื่อดูตั๋วของคุณ</h2>
-      <button class="button lime" @click="show('auth')">เข้าสู่ระบบ</button>
+      <h2>{{ t("เข้าสู่ระบบเพื่อดูตั๋วของคุณ", "Log in to view your tickets") }}</h2>
+      <button class="button lime" @click="show('auth')">{{ t("เข้าสู่ระบบ", "Log in") }}</button>
     </div>
     <template v-else
       ><p v-if="PREVIEW" class="sample-note">
@@ -191,12 +217,12 @@ onUnmounted(() => {
       </p>
       <div v-if="!myBookings.length" class="empty-state">
         <Ticket :size="40" />
-        <h2>ยังไม่มีการจอง</h2>
-        <p>เลือกสนามและเวลาที่คุณต้องการ แล้วนัดทีมได้เลย</p>
-        <a href="#home" class="button lime">เลือกสนาม</a>
+        <h2>{{ t("ยังไม่มีการจอง", "No bookings yet") }}</h2>
+        <p>{{ t("เลือกสนามและเวลาที่คุณต้องการ แล้วนัดทีมได้เลย", "Choose a field and time, then bring your team together.") }}</p>
+        <a href="#home" class="button lime">{{ t("เลือกสนาม", "Choose a field") }}</a>
       </div>
       <div class="my-tickets">
-        <article v-for="b in myBookings" :key="b.code" class="booking-ticket">
+        <article v-for="(b, index) in myBookings" :key="b.code" v-reveal="index * 65" class="booking-ticket">
           <div class="ticket-left">
             <div class="eyebrow green">NO.1 SPORTS / MATCH PASS</div>
             <h2>{{ b.field_name }}</h2>
@@ -212,7 +238,7 @@ onUnmounted(() => {
             ><strong>฿{{ money(b.amount) }}</strong
             ><button class="button dark" @click="openBooking(b)">
               {{
-                b.status === "pending_payment" ? "ชำระเงิน" : "ดูรายละเอียด"
+                b.status === "pending_payment" ? t("ชำระเงิน", "Pay now") : t("ดูรายละเอียด", "View details")
               }}
               <ArrowUpRight :size="17" />
             </button>
@@ -220,26 +246,54 @@ onUnmounted(() => {
         </article></div
     ></template>
   </main>
-  <main v-else class="page-container empty-state">
-    <h1>ไม่พบหน้าที่ต้องการ</h1>
-    <a href="#home" class="button dark">กลับหน้าแรก</a>
+  <main v-else-if="route === 'loyalty'" class="page-container loyalty-page">
+    <div v-if="!user && !PREVIEW" class="empty-state">
+      <Ticket :size="40" />
+      <h2>{{ t("เข้าสู่ระบบเพื่อดูแต้มสะสม", "Log in to view your points") }}</h2>
+      <button class="button lime" @click="show('auth')">{{ t("เข้าสู่ระบบ", "Log in") }}</button>
+    </div>
+    <template v-else>
+      <div class="page-title"><div><div class="eyebrow green">NO.1 SPORTS / LOYALTY</div><h1>{{ t("แต้มสะสมของฉัน", "My loyalty points") }}</h1><p>{{ t("รับแต้มหลังใช้สนาม และใช้เป็นส่วนลดการจองครั้งถัดไป", "Earn points after playing and use them on your next booking") }}</p></div></div>
+      <div class="loyalty-balance">
+        <div><span>{{ t("แต้มคงเหลือ", "Available points") }}</span><strong>{{ loyalty.balance }}</strong></div>
+        <div><span>{{ t("ส่วนลดสูงสุดต่อการจอง", "Maximum discount per booking") }}</span><strong>{{ loyalty.discount_cap_percent }}%</strong></div>
+        <p>{{ t("ทุก", "Every") }} ฿{{ money(loyalty.unit_amount) }} {{ t("ที่ชำระจริง รับ", "paid earns") }} {{ loyalty.points_per_unit }} {{ t("แต้ม · 1 แต้มลด 1 บาท", "points · 1 point saves 1 baht") }}</p>
+      </div>
+      <section class="panel padding"><h2>{{ t("ประวัติแต้ม", "Points history") }}</h2><div v-if="!loyaltyHistory.length" class="empty-state"><p>{{ t("ยังไม่มีรายการแต้ม", "No points activity yet") }}</p></div><div v-else class="loyalty-history"><article v-for="item in loyaltyHistory" :key="item.id"><div><b>{{ item.reason }}</b><small>{{ item.code ? item.code + ' · ' : '' }}{{ item.created_at }}</small></div><strong :class="item.points > 0 ? 'positive' : 'negative'">{{ item.points > 0 ? '+' : '' }}{{ item.points }}</strong><span>{{ item.balance_after }} {{ t("แต้มคงเหลือ", "balance") }}</span></article></div></section>
+    </template>
   </main>
+  <main v-else class="page-container empty-state">
+    <h1>{{ t("ไม่พบหน้าที่ต้องการ", "Page not found") }}</h1>
+    <a href="#home" class="button dark">{{ t("กลับหน้าแรก", "Back home") }}</a>
+  </main>
+  </div>
   <footer>
     <div class="footer-top">
       <a href="#home" class="brand"
         ><span class="brand-symbol">1<span>★</span></span
         ><span>NO.1 <b>SPORTS</b><small>THE HOME OF YOUR GAME</small></span></a
       >
-      <p>ทุกเกมดี ๆ เริ่มต้นที่นี่</p>
-      <div><Clock3 :size="17" /> เปิดทุกวัน 09:00–23:00</div>
+      <p>{{ t("ทุกเกมดี ๆ เริ่มต้นที่นี่", "Every good game starts here") }}</p>
+      <div><Clock3 :size="17" /> {{ t("เปิดทุกวัน 09:00–23:00", "Open daily 09:00–23:00") }}</div>
     </div>
     <div v-if="settings.address || settings.contact" class="footer-contact">
-      <span>{{ settings.address }}</span
+      <div v-if="settings.address && isMapLink(settings.address)" class="footer-map">
+        <iframe
+          :src="mapEmbedUrl(settings.address)"
+          title="แผนที่ไปสนาม No.1 Sports"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+        ></iframe>
+        <a class="button outline compact" :href="mapUrl(settings.address)" target="_blank" rel="noopener">
+          {{ t("เปิดแผนที่ใน Google Maps", "Open in Google Maps") }} <ArrowUpRight :size="15" />
+        </a>
+      </div>
+      <span v-else-if="settings.address">{{ settings.address }}</span
       ><span>{{ settings.contact }}</span>
     </div>
     <div class="footer-bottom">
       <span>© {{ new Date().getFullYear() }} No.1 Sports</span
-      ><a v-if="canAdmin" href="#admin">สำหรับผู้ดูแลสนาม</a
+      ><a v-if="canAdmin" href="#admin">{{ t("สำหรับผู้ดูแลสนาม", "For field staff") }}</a
       ><a
         href="https://unsplash.com/photos/K5ChxJaheKI"
         target="_blank"
@@ -249,13 +303,16 @@ onUnmounted(() => {
     </div>
   </footer>
   <nav class="mobile-nav">
-    <a href="#home" :class="{ active: route === 'home' }"><CalendarDays :size="20" />จองสนาม</a
-    ><a href="#bookings" :class="{ active: route === 'bookings' }"><Ticket :size="20" />ตั๋วของฉัน</a
-    ><a v-if="canAdmin" href="#admin" :class="{ active: route === 'admin' }"><Settings2 :size="20" />แอดมิน</a
-    ><button v-else @click="show('auth')"><Users :size="20" />บัญชี</button>
+    <a href="#home" :class="{ active: route === 'home' }"><CalendarDays :size="20" />{{ t("จองสนาม", "Book") }}</a
+    ><a href="#bookings" :class="{ active: route === 'bookings' }"><Ticket :size="20" />{{ t("ตั๋วของฉัน", "Tickets") }}</a
+    ><a href="#loyalty" :class="{ active: route === 'loyalty' }"><Trophy :size="20" />{{ t("แต้ม", "Points") }}</a
+    ><a v-if="canAdmin" href="#admin" :class="{ active: route === 'admin' }"><Settings2 :size="20" />{{ t("แอดมิน", "Admin") }}</a
+    ><button v-else @click="show('auth')"><Users :size="20" />{{ t("บัญชี", "Account") }}</button>
   </nav>
+  <Transition name="notification">
   <div v-if="notice" class="toast" role="status">
     <CheckCircle2 :size="18" />{{ notice }}
   </div>
+  </Transition>
   <Modals />
 </template>

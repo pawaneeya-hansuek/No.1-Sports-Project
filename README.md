@@ -148,6 +148,10 @@
 
 ## สำหรับนักพัฒนา
 
+แนวทางการทำงานตาม ISO/IEC 29110 Basic Profile (Project Management และ Software
+Implementation) พร้อมข้อกำหนด ตารางตรวจสอบย้อนกลับ แบบรับมอบ ความเสี่ยง และ
+Definition of Done อยู่ที่ [docs/ISO-IEC-29110.md](docs/ISO-IEC-29110.md)
+
 ```text
 src/                  Vue UI และการติดต่อ API
 server/public/api/    PHP API ที่เปิดให้เว็บเรียก
